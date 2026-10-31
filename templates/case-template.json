@@ -1,0 +1,28 @@
+{
+  "$schema": "https://uipath.com/schemas/caseplan.json",
+  "name": "<case-plan-name>",
+  "displayName": "<Case Plan Display Name>",
+  "description": "<What this case plan governs>",
+  "version": "1.0.0",
+  "sourceSdd": "./sdd.md",
+  "stages": [
+    { "name": "Intake", "type": "assignment", "description": "Case is created and routed" },
+    { "name": "Processing", "type": "automation", "description": "RPA/Flow executes the work" },
+    { "name": "Review", "type": "human", "description": "Human reviews the result (HITL)" },
+    { "name": "Done", "type": "final", "description": "Case closed" }
+  ],
+  "fields": [
+    { "name": "caseId", "type": "string", "required": true },
+    { "name": "priority", "type": "choice", "values": ["low", "medium", "high"], "required": false },
+    { "name": "payload", "type": "object", "required": true }
+  ],
+  "transitions": [
+    { "from": "Intake", "to": "Processing", "on": "assigned" },
+    { "from": "Processing", "to": "Review", "on": "automation-complete" },
+    { "from": "Review", "to": "Done", "on": "approved" }
+  ],
+  "automation": {
+    "solution": "./dist/<solution>.uipx",
+    "process": "<process-name>"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://uipath.com/schemas/solution.json",
+  "name": "<solution-name>",
+  "displayName": "<Solution Display Name>",
+  "description": "<What this solution bundles>",
+  "version": "1.0.0",
+  "projects": [
+    { "name": "<project-1>", "type": "rpa", "path": "projects/<project-1>" },
+    { "name": "<project-2>", "type": "case", "path": "projects/<project-2>" }
+  ],
+  "resources": [
+    { "name": "<asset-name>", "type": "asset", "folder": "<folder>" },
+    { "name": "<queue-name>", "type": "queue", "folder": "<folder>" }
+  ],
+  "publish": {
+    "feed": "Orchestrator",
+    "folder": "<folder>"
+  }
+}
