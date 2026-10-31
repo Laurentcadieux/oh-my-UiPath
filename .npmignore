@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Secrets
+.env
+*.env
+*.secret
+credentials.json
+uip-token.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Source (not needed in published package — dist/ ships instead)
+src/
+tsconfig.json

@@ -12,7 +12,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
-    "test": "node --test dist/**/*.test.js || tsc --noEmit"
+    "test": "node --test dist/**/*.test.js || tsc --noEmit",
+    "prepublishOnly": "tsc -p tsconfig.json && npm test",
+    "publish": "npm publish --access public"
   },
   "dependencies": {
     "chalk": "^4.1.2",
