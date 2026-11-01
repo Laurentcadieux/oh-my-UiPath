@@ -15,7 +15,6 @@ import { workflowList, getWorkflow } from './workflows';
 import { listSkills, getSkill, searchSkills, skillCount } from './skills';
 import { loadConfig } from './config';
 import { loadSkillStatusMap, buildSyncReport, loadVersionManifest } from './skill-status';
-import { runPipeline } from './engine';
 import { promote, printPromotion } from './engine/environments';
 import { rollback, printRollback } from './engine/rollback';
 
@@ -72,9 +71,7 @@ function withRunOptions(cmd: Command): Command {
     .option('--cwd <path>', 'working directory for uip', process.cwd())
     .option('--dry-run', 'print the uip calls that would run without executing')
     .option('--verbose', 'print full uip stdout/stderr')
-    .option('--allow-preview', 'allow Preview/In-development skills against prod environments')
-    .option('--parallel', 'run the pipeline in parallel mode (engine)')
-    .option('--concurrency <n>', 'max parallel tasks (default 4)', '4');
+    .option('--allow-preview', 'allow Preview/In-development skills against prod environments');
 }
 
 /** Run a shell command and return stdout, or empty string on failure. */
@@ -216,26 +213,6 @@ export function createCli(): Command {
       return;
     }
     const ctx = buildCtx(opts);
-
-    // If --parallel is set on autopilot, use the engine.
-    if (opts.parallel && wfName === 'autopilot') {
-      console.log(chalk.cyan(`engine: parallel mode (concurrency=${opts.concurrency ?? 4})`));
-      const report = await runPipeline(ctx, 'parallel', {
-        concurrency: Number(opts.concurrency ?? 4),
-        dryRun: Boolean(opts.dryRun),
-      });
-      if (report.dagString) {
-        console.log(chalk.gray(report.dagString));
-        console.log(chalk.gray('\n' + report.batchString));
-        console.log(chalk.gray('\n*No uip calls will run in dry-run mode.*'));
-      }
-      if (report.taskResultString) {
-        console.log(chalk.gray(report.taskResultString));
-      }
-      printResults(report.results, ctx.verbose);
-      return;
-    }
-
     console.log(chalk.cyan(`workflow: ${wf.name} — ${wf.description}`));
     const results = await wf.run(ctx);
     printResults(results, ctx.verbose);
@@ -252,58 +229,6 @@ export function createCli(): Command {
 
   withRunOptions(program.command('run <workflow>').description('Run any workflow by name'))
     .action(async (workflow: string, opts: Record<string, unknown>) => runWorkflow(workflow, opts));
-
-  // --- bench ---
-  withRunOptions(
-    program
-      .command('bench')
-      .description('Benchmark: run the same SDD in sequential and parallel modes, compare wall-clock time per stage')
-      .option('--concurrency <n>', 'max parallel tasks for parallel mode', '4'),
-  )
-    .action(async (opts: Record<string, unknown>) => {
-      const ctx = buildCtx(opts);
-      const concurrency = Number(opts.concurrency ?? 4);
-
-      console.log(chalk.cyan('\noh-my-UiPath Benchmark\n'));
-
-      if (ctx.dryRun) {
-        // Just print the DAG + batches for both modes.
-        const report = await runPipeline(ctx, 'parallel', { concurrency, dryRun: true });
-        if (report.dagString) {
-          console.log(chalk.gray(report.dagString));
-          console.log(chalk.gray('\n' + report.batchString));
-          console.log(chalk.gray('\n*No uip calls will run in dry-run mode.*\n'));
-        }
-        return;
-      }
-
-      // Sequential mode.
-      console.log(chalk.gray('Running sequential mode...'));
-      const seqStart = Date.now();
-      const seqReport = await runPipeline(ctx, 'sequential', {});
-      const seqDuration = Date.now() - seqStart;
-      console.log(chalk.green(`  Sequential: ${seqDuration}ms`));
-      printResults(seqReport.results, ctx.verbose);
-
-      // Parallel mode.
-      console.log(chalk.gray('\nRunning parallel mode...'));
-      const parStart = Date.now();
-      const parReport = await runPipeline(ctx, 'parallel', { concurrency });
-      const parDuration = Date.now() - parStart;
-      console.log(chalk.green(`  Parallel: ${parDuration}ms`));
-      if (parReport.taskResultString) {
-        console.log(chalk.gray(parReport.taskResultString));
-      }
-
-      // Summary.
-      const speedup = seqDuration > 0 ? (seqDuration / parDuration).toFixed(2) : 'N/A';
-      const faster = parDuration < seqDuration;
-      console.log(chalk.cyan(`\nSummary:`));
-      console.log(`  Sequential: ${chalk.bold(`${seqDuration}ms`)}`);
-      console.log(`  Parallel:   ${chalk.bold(`${parDuration}ms`)} (concurrency=${concurrency})`);
-      console.log(`  Speedup:    ${faster ? chalk.green(`${speedup}x`) : chalk.red(`${speedup}x`)} ${faster ? '(faster)' : '(slower)'}`);
-      console.log();
-    });
 
   // --- promote ---
   withRunOptions(

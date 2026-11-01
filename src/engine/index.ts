@@ -1,59 +1,39 @@
 /**
- * Engine entry — runPipeline(ctx, mode) orchestrates the DAG either
- * sequentially or in parallel.
+ * Engine entry — runPipeline(ctx) orchestrates the DAG sequentially.
  *
- * Sequential mode: run stages in topological order (same as current autopilot).
- * Parallel mode: run independent tasks in parallel with the worker pool,
- *   MUTATING tasks through the lock, fail-fast cancellation.
+ * The autopilot graph is strictly linear (plan → review → deploy → test),
+ * so there are no independent branches to parallelize. The parallel engine
+ * and bench command have been removed until the graph has independent
+ * branches with a measured gain.
  */
 import type { AgentContext, AgentResult } from '../types';
 import { getAgent } from '../agents';
 import {
   buildAutopilotDag,
   topologicalSort,
-  formatDag,
-  formatBatches,
 } from './task-graph';
-import { runParallel, formatResults } from './worker-pool';
-import type { TaskResult } from './types';
-import { fetchTenantSnapshot } from './tenant-snapshot';
 import { loadSkillStatusMap, isSkillAllowed } from '../skill-status';
 import { attemptRecovery } from './recovery';
 import chalk from 'chalk';
 
-export type EngineMode = 'sequential' | 'parallel';
-
 export interface EngineOptions {
-  readonly concurrency?: number;
   readonly dryRun?: boolean;
 }
 
 export interface EngineReport {
   readonly results: AgentResult[];
-  readonly taskResults?: TaskResult[];
-  readonly dagString?: string;
-  readonly batchString?: string;
-  readonly taskResultString?: string;
 }
 
 /**
- * Run the full autopilot pipeline through the engine.
+ * Run the full autopilot pipeline through the engine (sequential only).
  */
 export async function runPipeline(
   ctx: AgentContext,
-  mode: EngineMode,
-  opts: EngineOptions = {},
 ): Promise<EngineReport> {
   const dag = buildAutopilotDag(ctx);
 
   if (ctx.dryRun) {
-    const dagStr = formatDag(dag);
-    const batchStr = formatBatches(dag, opts.concurrency ?? 4);
-    return {
-      results: [],
-      dagString: dagStr,
-      batchString: batchStr,
-    };
+    return { results: [] };
   }
 
   // Status gating: check all skills before running.
@@ -76,72 +56,41 @@ export async function runPipeline(
     }
   }
 
-  if (mode === 'sequential') {
-    // Run stages in topological order.
-    const sorted = topologicalSort(dag);
-    const results: AgentResult[] = [];
-    for (const task of sorted) {
-      const agent = getAgent(task.agent);
-      if (!agent) continue;
-      let res = await agent.run(ctx);
-      results.push(res);
+  // Run stages in topological order (sequential only).
+  const sorted = topologicalSort(dag);
+  const results: AgentResult[] = [];
+  for (const task of sorted) {
+    const agent = getAgent(task.agent);
+    if (!agent) continue;
+    let res = await agent.run(ctx);
+    results.push(res);
 
-      // Self-healing: if the step fails, attempt recovery.
-      if (!res.success) {
-        const recovery = await attemptRecovery(ctx, task.id, res.output, 0);
+    // Self-healing: if the step fails, attempt recovery (recommend-only).
+    if (!res.success) {
+      const recovery = await attemptRecovery(ctx, task.id, res.output, 0);
 
-        // If recovery applied an AUTHORING fix, retry the step.
-        if (recovery.applied && recovery.retried) {
-          res = await agent.run(ctx);
-          results[results.length - 1] = res;
-          if (res.success) {
-            // Recovery succeeded — continue the pipeline.
-            continue;
-          }
-        }
-
-        // Recovery failed or TENANT fix needed — run diagnostician + stop.
-        if (!res.success) {
-          const diag = getAgent('diagnostician');
-          if (diag && !ctx.dryRun) {
-            const diagRes = await diag.run({
-              ...ctx,
-              labels: {
-                ...(ctx.labels ?? {}),
-                ['failed-step']: task.id,
-                ['failed-output']: res.output.slice(0, 4096),
-              },
-            });
-            results.push(diagRes);
-          }
-          break;
-        }
+      // Recovery is recommend-only — never auto-applies.
+      // Print the recommendation and stop the pipeline.
+      if (recovery.fixType !== 'NONE') {
+        console.log(chalk.yellow(`\n⚠ Recovery recommendation for "${task.id}":`));
+        console.log(chalk.gray(recovery.output));
       }
+
+      // Run diagnostician for detailed diagnosis.
+      const diag = getAgent('diagnostician');
+      if (diag && !ctx.dryRun) {
+        const diagRes = await diag.run({
+          ...ctx,
+          labels: {
+            ...(ctx.labels ?? {}),
+            ['failed-step']: task.id,
+            ['failed-output']: res.output.slice(0, 4096),
+          },
+        });
+        results.push(diagRes);
+      }
+      break;
     }
-    return { results };
   }
-
-  // Parallel mode.
-  // 1. Fetch tenant snapshot in parallel.
-  const snapshot = await fetchTenantSnapshot(ctx);
-  void snapshot; // snapshot is available for workers via ctx in future versions
-
-  // 2. Run tasks in parallel.
-  const taskResults = await runParallel(dag, ctx, opts.concurrency ?? 4);
-
-  // 3. Convert to AgentResult[] for compatibility.
-  const results: AgentResult[] = taskResults.map((tr) => ({
-    agent: tr.agent,
-    success: tr.status === 'ok',
-    output: tr.output,
-    artifacts: [],
-    durationMs: tr.durationMs,
-    exitCodes: tr.exitCodes,
-  }));
-
-  return {
-    results,
-    taskResults,
-    taskResultString: formatResults(taskResults),
-  };
+  return { results };
 }
