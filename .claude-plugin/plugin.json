@@ -1,5 +1,5 @@
 {
-  "name": "oh-my-uipath-h",
+  "name": "oh-my-UiPath-h",
   "version": "1.7.0",
   "description": "Multi-agent orchestration for the UiPath platform — chains uip CLI skills into a reliable SDD-to-deploy pipeline",
   "author": { "name": "Laurent Cadieux", "email": "laurent@cadieux.dev" },

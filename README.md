@@ -2,6 +2,22 @@
 
 > ⚠️ **Disclaimer — Research Only.** Not affiliated with UiPath. This is an independent helper; UiPath names and feeds are referenced only for compatibility. No warranty — you use this software at your own risk. The authors are not liable for damage, data loss, compliance issues, or failed restores. Downloads require outbound HTTPS to the feeds you use; you are responsible for license terms and organizational policies. Version resolution is heuristic (not a full NuGet graph solver). Authenticated feeds (private Azure Artifacts with PAT, etc.) are not built in; only anonymous NuGet v3 sources work unless you extend the code.
 
+## Why omu-h? — Value over the upstream UiPath skills
+
+The upstream [UiPath skills](https://github.com/UiPath/skills) (28 skills, `uipath-planner`, `uipath-solution`, `uipath-review`, `uipath-troubleshoot`, etc.) give you **per-product knowledge**: each skill knows its own surface. But they don't chain. There is no upstream mechanism that:
+
+- **Runs the full SDD-to-deploy pipeline end to end** — plan → case → build → review → deploy → test in one command, with stop-on-failure at every step.
+- **Stops on failure inside an agent** — upstream skills run all their `uip` calls even after one fails. omu-h short-circuits on the first non-zero exit and reports which step failed and why.
+- **Gates on skill maturity** — upstream has a `skill-status.json` (Stable / Preview / In-development) but nothing reads it. omu-h refuses Preview/In-development skills against prod without `--allow-preview`.
+- **Validates before deploy** — upstream `uipath-review` exists but nothing calls it automatically. omu-h runs it between build and deploy, and gates on Critical findings.
+- **Self-heals on failure** — when a step fails, omu-h feeds the error to `uipath-troubleshoot`, classifies the fix (local file vs tenant state), applies local fixes automatically (max 2 retries), and asks before touching tenant state.
+- **Promotes across environments** — dev → test → prod with gates (validation passed, no Critical findings, test pass rate), and explicit confirmation for prod.
+- **Rolls back** — records pre-deploy process versions and restores them via `uip or processes rollback` on failure.
+- **Blocks dangerous mutations on prod** — a Claude Code PreToolUse hook intercepts `uip` commands and blocks `publish`/`deploy`/`activate`/`rollback` on the Prod tenant unless explicitly bypassed.
+- **Runs tasks in parallel** — a dependency-graph engine runs independent READ_ONLY and AUTHORING tasks concurrently (configurable concurrency, default 4), with a mutation lock that serializes tenant-changing operations per folder.
+
+In short: **upstream skills know what to do; omu-h makes sure it actually gets done safely, in the right order, with recovery when it breaks.**
+
 > Multi-agent orchestration for the **UiPath platform**, powered by the `uip` CLI and the 27 installed UiPath skills.
 
 `oh-my-UiPath` (the `omu-h` command) wraps the [UiPath CLI (`uip`)](https://github.com/UiPath/uipathcli) and the [27 UiPath skills](https://github.com/uipath/skills) into a single cohesive orchestration system. Instead of memorising `uip` subcommands and remembering which skill owns which surface, you describe what you want — in natural language or via a CLI command — and `omu-h` routes the request to the right specialized **agent**, which drives the right **UiPath skill** and the right **`uip` command**.
@@ -134,7 +150,7 @@ In a Claude Code session, run these **one at a time** (not on the same line):
 Wait for "marketplace added", then:
 
 ```
-/plugin install oh-my-uipath-h@oh-my-uipath
+/plugin install oh-my-UiPath-h@oh-my-uipath
 ```
 
 ### Use it
