@@ -152,7 +152,7 @@ In a Claude Code session, run these **one at a time** (not on the same line):
 Wait for "marketplace added", then:
 
 ```
-/plugin install oh-my-uipath-h@oh-my-uipath
+/plugin install oh-my-uipath-h@oh-my-uipath-h
 ```
 
 ### Use it
