@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * omu — the oh-my-UiPath CLI.
+ * omu-h — the oh-my-UiPath CLI.
  *
  * A single command surface over the agents, workflows, and skills.
  * Built with commander.js. Every workflow/agent invocation supports
@@ -67,12 +67,60 @@ function withRunOptions(cmd: Command): Command {
     .option('--verbose', 'print full uip stdout/stderr');
 }
 
+/** Run a shell command and return stdout, or empty string on failure. */
+function tryExec(cmdStr: string): string {
+  try {
+    const { execSync } = require('child_process');
+    return execSync(cmdStr, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  } catch {
+    return '';
+  }
+}
+
 export function createCli(): Command {
   const program = new Command();
   program
-    .name('omu')
+    .name('omu-h')
     .description('oh-my-UiPath — multi-agent orchestration for the UiPath platform')
-    .version('0.1.0');
+    .version('1.0.1');
+
+  // --- setup ---
+  program
+    .command('setup')
+    .description('Check prerequisites and show setup status')
+    .action(async () => {
+      console.log(chalk.cyan('\noh-my-UiPath Setup\n'));
+      const cfg = loadConfig();
+
+      // Check uip CLI
+      const uipVer = tryExec(`'${cfg.uipBin}' --version`);
+      if (uipVer) {
+        console.log(`${chalk.green('✓')} uip CLI: ${chalk.bold(uipVer)} (${cfg.uipBin})`);
+      } else {
+        console.log(`${chalk.red('✗')} uip CLI: ${chalk.red('not found')} at ${cfg.uipBin}`);
+        console.log(chalk.gray('  Install: npm install -g @uipath/cli'));
+      }
+
+      // Check skills
+      const count = skillCount();
+      if (count > 0) {
+        console.log(`${chalk.green('✓')} UiPath skills: ${chalk.bold(String(count))} installed`);
+      } else {
+        console.log(`${chalk.red('✗')} UiPath skills: ${chalk.red('0 installed')}`);
+        console.log(chalk.gray('  Install: uip skills install'));
+      }
+
+      // Check auth
+      const authOut = tryExec(`'${cfg.uipBin}' login status`);
+      if (authOut && authOut.includes('Logged in')) {
+        console.log(`${chalk.green('✓')} uip login: ${chalk.bold('authenticated')}`);
+      } else {
+        console.log(`${chalk.yellow('⚠')} uip login: ${chalk.yellow('not authenticated')}`);
+        console.log(chalk.gray('  Run: uip login'));
+      }
+
+      console.log(chalk.gray('\nCommands: omu-h agents | omu-h skills | omu-h workflows | omu-h autopilot --sdd ./sdd.md --dry-run\n'));
+    });
 
   // --- agents ---
   program
@@ -178,12 +226,12 @@ export function createCli(): Command {
   return program;
 }
 
-/** Parse argv and execute. Entry point for `bin/omu`. */
+/** Parse argv and execute. Entry point for `bin/omu-h`. */
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   await createCli().parseAsync(argv);
 }
 
-// When run directly as `bin/omu`, execute the CLI.
+// When run directly as `bin/omu-h`, execute the CLI.
 if (require.main === module) {
   runCli().catch((err: unknown) => {
     console.error(err);
