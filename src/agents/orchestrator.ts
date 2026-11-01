@@ -2,7 +2,7 @@
  * orchestrator — the coordinator agent.
  *
  * Owns: tenant/folder discovery, pipeline planning, and routing to specialist
- * agents. Maps to `uip solution`, `uip orchestrator`, and the platform skill.
+ * agents. Maps to `uip or` (orchestrator) and the platform skill.
  */
 import * as path from 'node:path';
 import type { Agent, AgentContext, AgentResult } from '../types';
@@ -13,7 +13,7 @@ export const orchestrator: Agent = {
   role:
     'Coordinates the full SDD-to-deploy pipeline: resolves tenant/folder context, plans the agent sequence, and delegates to specialist agents.',
   skills: ['uipath-platform', 'uipath-solution', 'uipath-planner'],
-  commands: ['uip solution', 'uip orchestrator folders list', 'uip orchestrator'],
+  commands: ['uip or folders list'],
   async run(ctx: AgentContext): Promise<AgentResult> {
     const start = Date.now();
     const plan = [
@@ -29,13 +29,11 @@ export const orchestrator: Agent = {
     }
 
     // Resolve the target Orchestrator folder so downstream agents inherit it.
-    const folders = runUip(ctx, ['orchestrator', 'folders', 'list', '--json']);
-    return makeResult(
-      'orchestrator',
-      [folders],
-      ['orchestration-plan.json'],
-      start,
-    );
+    // Verified: `uip or folders list --output json` (uip v1.202.1)
+    const folders = runUip(ctx, ['or', 'folders', 'list', '--output', 'json'], {
+      label: 'folders list',
+    });
+    return makeResult('orchestrator', [folders], ['orchestration-plan.json'], start);
   },
 };
 

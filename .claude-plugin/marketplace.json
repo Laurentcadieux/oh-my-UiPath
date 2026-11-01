@@ -1,7 +1,12 @@
 {
   "name": "oh-my-uipath",
+  "description": "Multi-agent orchestration for the UiPath platform — chains uip CLI skills into a reliable SDD-to-deploy pipeline with stop-on-failure, parallel workers, and mutation locks.",
   "owner": { "name": "Laurent Cadieux" },
   "plugins": [
-    { "name": "oh-my-uipath-h", "source": "./", "description": "Multi-agent orchestration for UiPath platform" }
+    {
+      "name": "oh-my-uipath-h",
+      "source": "./",
+      "description": "Multi-agent orchestration for the UiPath platform — chains uip CLI skills into a reliable SDD-to-deploy pipeline with stop-on-failure, parallel workers, and mutation locks."
+    }
   ]
 }

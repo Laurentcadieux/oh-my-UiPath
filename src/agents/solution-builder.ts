@@ -3,11 +3,16 @@
  *
  * Owns: scaffolding a solution from the SDD-derived project list, restoring
  * dependencies, and packing into a deployable `.uipx`. Maps to
- * `uip solution init/restore/pack` and `uip rpa pack`.
+ * `uip solution init/restore/pack` and the `uipath-solution` skill.
+ *
+ * Verified against `uip solution --help` (v1.202.1):
+ * - `uip solution init <solutionName>` — positional, not --name
+ * - `uip solution restore <solutionPath>` — positional required
+ * - `uip solution pack <solutionPath> <output-path>` — two positionals
  */
 import * as path from 'node:path';
 import type { Agent, AgentContext, AgentResult } from '../types';
-import { runUip, makeResult, planResult } from '../config';
+import { runUipChain, makeChainResult, planResult } from '../config';
 import { defaultSolutionName } from './orchestrator';
 
 export const solutionBuilder: Agent = {
@@ -19,7 +24,6 @@ export const solutionBuilder: Agent = {
     'uip solution init',
     'uip solution restore',
     'uip solution pack',
-    'uip rpa pack',
   ],
   async run(ctx: AgentContext): Promise<AgentResult> {
     const start = Date.now();
@@ -27,19 +31,19 @@ export const solutionBuilder: Agent = {
     const outDir = 'dist';
     const uipxGlob = path.join(outDir, '*.uipx');
 
-    const plan = [
-      `solution init --name ${name}`,
-      `solution restore`,
-      `solution pack --output ${outDir}`,
-    ];
-
     if (ctx.dryRun) {
-      return planResult('solution-builder', plan, [uipxGlob], start);
+      return planResult('solution-builder', [
+        `solution init ${name}`,
+        `solution restore ${name}`,
+        `solution pack ${name} ${outDir}`,
+      ], [uipxGlob], start);
     }
 
-    const init = runUip(ctx, ['solution', 'init', '--name', name]);
-    const restore = runUip(ctx, ['solution', 'restore']);
-    const pack = runUip(ctx, ['solution', 'pack', '--output', outDir]);
-    return makeResult('solution-builder', [init, restore, pack], [uipxGlob], start);
+    const chain = runUipChain(ctx, [
+      { args: ['solution', 'init', name], label: 'solution init' },
+      { args: ['solution', 'restore', name], label: 'solution restore' },
+      { args: ['solution', 'pack', name, outDir], label: 'solution pack' },
+    ]);
+    return makeChainResult('solution-builder', chain, [uipxGlob], start);
   },
 };

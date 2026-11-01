@@ -4,9 +4,15 @@
  * Owns: turning an SDD into a `caseplan.json`, validating it, and packing it
  * for deployment. Maps to `uip maestro case init/validate/pack` and the
  * `uipath-maestro-case` + `uipath-planner` skills.
+ *
+ * Verified against `uip maestro case --help` (v1.202.1):
+ * - `uip maestro case init <name>` — positional, no --from-sdd flag exists
+ * - `uip maestro case validate <file>` — positional required
+ * - `uip maestro case pack <project-path> <output-path>` — two positionals
  */
+import * as path from 'node:path';
 import type { Agent, AgentContext, AgentResult } from '../types';
-import { runUip, makeResult, planResult } from '../config';
+import { runUipChain, makeChainResult, planResult } from '../config';
 
 export const caseArchitect: Agent = {
   name: 'case-architect',
@@ -20,21 +26,24 @@ export const caseArchitect: Agent = {
   ],
   async run(ctx: AgentContext): Promise<AgentResult> {
     const start = Date.now();
-    const sdd = ctx.sddPath ?? 'sdd.md';
-
-    const plan = [
-      `maestro case init --from-sdd ${sdd}`,
-      'maestro case validate',
-      'maestro case pack',
-    ];
+    const caseName = 'hermes-case';
+    const caseDir = path.join(ctx.cwd, caseName);
+    const caseplanPath = path.join(caseDir, 'caseplan.json');
+    const outDir = 'dist';
 
     if (ctx.dryRun) {
-      return planResult('case-architect', plan, ['caseplan.json'], start);
+      return planResult('case-architect', [
+        `maestro case init ${caseName}`,
+        `maestro case validate ${caseplanPath}`,
+        `maestro case pack ${caseDir} ${outDir}`,
+      ], [caseplanPath], start);
     }
 
-    const init = runUip(ctx, ['maestro', 'case', 'init', '--from-sdd', sdd]);
-    const validate = runUip(ctx, ['maestro', 'case', 'validate']);
-    const pack = runUip(ctx, ['maestro', 'case', 'pack']);
-    return makeResult('case-architect', [init, validate, pack], ['caseplan.json'], start);
+    const chain = runUipChain(ctx, [
+      { args: ['maestro', 'case', 'init', caseName], label: 'case init' },
+      { args: ['maestro', 'case', 'validate', caseplanPath], label: 'case validate' },
+      { args: ['maestro', 'case', 'pack', caseDir, outDir], label: 'case pack' },
+    ]);
+    return makeChainResult('case-architect', chain, [caseplanPath], start);
   },
 };
