@@ -5,30 +5,225 @@
  * Intercepts Bash commands that invoke the `uip` CLI and applies safety
  * rules:
  *
- *  - Non-uip commands: pass through (exit 0, no overhead beyond a regex).
+ *  - Non-uip commands: pass through (exit 0).
  *  - READ_ONLY uip commands (list, get, status, validate, search): pass.
  *  - AUTHORING uip commands (init, restore, pack, projects add/remove,
  *    resources refresh, case init/pack): pass.
- *  - MUTATING uip commands (publish, deploy run/activate/upgrade/uninstall,
- *    upload, rollback, update-version, create/delete on assets/queues/buckets,
- *    solution delete): **blocked when the active tenant is Prod** (exit 2)
- *    unless `OMU_ALLOW_PROD_MUTATIONS=1` is set in the environment.
- *  - MUTATING on non-prod: pass with a warning to stderr.
+ *  - MUTATING uip commands: **blocked when the active tenant is Prod or
+ *    unknown** (exit 2) unless `OMU_ALLOW_PROD_MUTATIONS=1` is set.
+ *  - On non-prod known tenants: pass with a warning to stderr.
+ *
+ * Prod detection:
+ *  - env `OMU_PROD_TENANT_PATTERN` (a regex string), default: ^(prod|production)([-_].*)?$
+ *  - Optional `.omu.json` in project root or home: { "prodTenantPattern": "..." }
+ *
+ * Fail-closed: if the tenant is empty or unknown, MUTATING commands are
+ * blocked. The user must set `UIPATH_CURRENT_TENANT` (or `OMU_TENANT`)
+ * to a non-prod value, or set `OMU_ALLOW_PROD_MUTATIONS=1`.
+ *
+ * Command normalization:
+ *  - Strips global flags placed before the subcommand
+ *    (e.g. `uip --output json solution publish` → `uip solution publish`).
+ *  - Handles chained commands (&&, ;, |) — each segment is checked.
+ *  - Handles `npx uip`, `npx @uipath/cli`, absolute paths to the uip binary.
  *
  * Input (stdin JSON): { "tool_name": "Bash", "tool_input": { "command": "..." } }
  * Exit 0 = allow, exit 2 = block (stderr shown to user).
  *
- * No network calls. Runs in < 5 seconds (no network, just string matching).
+ * No network calls. Runs in < 5 seconds (string matching only).
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { homedir } from "node:os";
 
-// --- Read stdin (the PreToolUse payload) ---
+// ─── Config ───────────────────────────────────────────────────────────
+
+/** Load .omu.json from project root or home directory. */
+function loadOmuConfig() {
+  const candidates = [
+    join(process.cwd(), ".omu.json"),
+    join(homedir(), ".omu.json"),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      try {
+        return JSON.parse(readFileSync(p, "utf8"));
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }
+  return {};
+}
+
+const omuConfig = loadOmuConfig();
+
+/** Prod tenant pattern (regex). */
+const PROD_PATTERN_STR =
+  process.env.OMU_PROD_TENANT_PATTERN ??
+  omuConfig.prodTenantPattern ??
+  "^(prod|production)([-_].*)?$";
+const PROD_RE = new RegExp(PROD_PATTERN_STR, "i");
+
+/** Bypass flag for all prod mutations. */
+const ALLOW_PROD = process.env.OMU_ALLOW_PROD_MUTATIONS === "1";
+
+// ─── Command normalization ────────────────────────────────────────────
+
+/**
+ * Extract all `uip ...` invocations from a Bash command string.
+ *
+ * Handles:
+ * - Global flags before the subcommand: `uip --output json solution publish`
+ *   → extracted as `uip solution publish`
+ * - Chained commands: `cmd1 && uip ... ; cmd2 | uip ...`
+ *   → each uip segment extracted separately
+ * - `npx uip`, `npx @uipath/cli`: stripped to `uip`
+ * - Absolute paths: `/usr/local/bin/uip solution publish` → `uip solution publish`
+ *
+ * Returns an array of normalized uip command strings (without the leading
+ * `uip` token). Empty array if no uip invocation found.
+ */
+function extractUipCommands(bashCmd) {
+  // Split on chain operators: && ; | (but not ||)
+  // Also handle subshells: ( ... ) or $( ... )
+  const segments = bashCmd.split(/(?:&&|;|\||\$\(|\(|\)|&&)/).map((s) => s.trim()).filter(Boolean);
+
+  const uipCmds = [];
+
+  for (const seg of segments) {
+    // Tokenize the segment
+    const tokens = seg.split(/\s+/).filter(Boolean);
+
+    // Find the uip token (could be `uip`, `npx uip`, `/path/to/uip`, etc.)
+    let uipIdx = -1;
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i];
+      // Direct `uip` or path ending in `uip`
+      if (tok === "uip" || tok.endsWith("/uip")) {
+        uipIdx = i;
+        break;
+      }
+      // `npx uip` — skip `npx` and look for `uip`
+      if (tok === "npx" && tokens[i + 1] === "uip") {
+        uipIdx = i + 1;
+        break;
+      }
+      // `npx @uipath/cli`
+      if (tok === "npx" && tokens[i + 1] === "@uipath/cli") {
+        uipIdx = i + 1;
+        break;
+      }
+    }
+
+    if (uipIdx < 0) continue;
+
+    // Extract everything after the uip token
+    let args = tokens.slice(uipIdx + 1);
+
+    // Strip global flags that appear before the subcommand.
+    // Known global flags: --output, --output-filter, --log-level, --log-file,
+    //   --profile, --help, -h
+    // These can take a value (--output json) or not (--help).
+    const GLOBAL_FLAGS_WITH_VALUE = ["--output", "--output-filter", "--log-level", "--log-file", "--profile"];
+    const GLOBAL_FLAGS_BOOL = ["--help", "-h"];
+
+    const cleaned = [];
+    let i = 0;
+    while (i < args.length) {
+      const a = args[i];
+      if (GLOBAL_FLAGS_WITH_VALUE.includes(a)) {
+        // Skip the flag and its value
+        i += 2;
+        continue;
+      }
+      if (GLOBAL_FLAGS_BOOL.includes(a)) {
+        i += 1;
+        continue;
+      }
+      // Once we hit a non-flag token, that's the subcommand — stop stripping
+      cleaned.push(a);
+      i++;
+    }
+
+    if (cleaned.length > 0) {
+      uipCmds.push(cleaned.join(" "));
+    }
+  }
+
+  return uipCmds;
+}
+
+// ─── Classification ────────────────────────────────────────────────────
+
+// MUTATING subcommands that change tenant state.
+// All verified against `uip <cmd> --help` on uip v1.202.1 (Nov 2026).
+const MUTATING_PATTERNS = [
+  // Solution lifecycle
+  /solution\s+publish\b/,
+  /solution\s+deploy\s+run\b/,
+  /solution\s+deploy\s+activate\b/,
+  /solution\s+deploy\s+upgrade\b/,
+  /solution\s+deploy\s+uninstall\b/,
+  /solution\s+upload\b/,
+  /solution\s+delete\b/,
+  // Orchestrator resource mutations
+  /or\s+processes\s+rollback\b/,
+  /or\s+processes\s+update-version\b/,
+  /or\s+processes\s+(create|delete)\b/,
+  /or\s+assets\s+(create|delete|update)\b/,
+  /or\s+queues\s+(create|delete)\b/,
+  /or\s+buckets\s+(create|delete)\b/,
+  /or\s+folders\s+(create|delete)\b/,
+  /or\s+libraries\s+(delete|upload)\b/,
+  // Job/queue mutations
+  /or\s+jobs\s+(start|stop|restart)\b/,
+  /or\s+queue-items\s+(start|stop|restart)\b/,
+  // Maestro mutations
+  /maestro\s+(case|bpmn|flow)\s+(publish|deploy|run)\b/,
+  // Coded app/agent mutations
+  /codedapp\s+(publish|deploy|delete)\b/,
+  /codedagent\s+(publish|deploy|register)\b/,
+  // Function mutations
+  /function\s+(publish|push)\b/,
+  // IXP mutations
+  /ixp\s+projects\s+(publish|unpublish|delete)\b/,
+  // Integration Service mutations
+  /is\s+connectors\s+(import|publish|delete)\b/,
+  // AgentHub mutations
+  /agenthub\s+mcp\s+(create|delete|update)\b/,
+];
+
+// AUTHORING subcommands that write local files but don't change tenant state.
+// All verified against `uip <cmd> --help` on uip v1.202.1 (Nov 2026).
+const AUTHORING_PATTERNS = [
+  /solution\s+init\b/,
+  /solution\s+restore\b/,
+  /solution\s+pack\b/,
+  /solution\s+projects\s+(add|remove|import)\b/,
+  /solution\s+resources\s+(refresh|add|remove|edit)\b/,
+  /maestro\s+case\s+init\b/,
+  /maestro\s+case\s+pack\b/,
+  /maestro\s+bpmn\s+(init|pack|compile)\b/,
+  /maestro\s+flow\s+init\b/,
+  /maestro\s+flow\s+pack\b/,
+  /rpa\s+(init|pack|restore)\b/,
+];
+
+function classify(cmd) {
+  if (MUTATING_PATTERNS.some((re) => re.test(cmd))) return "MUTATING";
+  if (AUTHORING_PATTERNS.some((re) => re.test(cmd))) return "AUTHORING";
+  return "READ_ONLY";
+}
+
+// ─── Main ──────────────────────────────────────────────────────────────
+
+// Read stdin (the PreToolUse payload).
 let input;
 try {
   const raw = readFileSync(0, "utf8");
   input = JSON.parse(raw);
 } catch {
-  // Can't parse — allow the command (don't break Claude Code).
   process.exit(0);
 }
 
@@ -37,108 +232,53 @@ if (typeof command !== "string" || command.length === 0) {
   process.exit(0);
 }
 
-// --- Is this a uip command? ---
-// Match `uip` as a word-boundary command (not a substring like "recoop").
-const uipMatch = /\buip\b/.test(command);
-if (!uipMatch) {
-  // Not a uip command — pass through immediately.
+// Extract all uip invocations from the Bash command.
+const uipCmds = extractUipCommands(command);
+if (uipCmds.length === 0) {
   process.exit(0);
 }
 
-// --- Classify the uip command ---
+// Classify each uip invocation.
+const hasMutating = uipCmds.some((c) => classify(c) === "MUTATING");
 
-// MUTATING subcommands that change tenant state.
-const MUTATING_PATTERNS = [
-  /\buip\s+(solution\s+)?publish\b/,
-  /\buip\s+solution\s+deploy\s+run\b/,
-  /\buip\s+solution\s+deploy\s+activate\b/,
-  /\buip\s+solution\s+deploy\s+upgrade\b/,
-  /\buip\s+solution\s+deploy\s+uninstall\b/,
-  /\buip\s+solution\s+upload\b/,
-  /\buip\s+solution\s+delete\b/,
-  /\buip\s+or\s+processes\s+rollback\b/,
-  /\buip\s+or\s+processes\s+update-version\b/,
-  /\buip\s+or\s+assets\s+(create|delete|update)\b/,
-  /\buip\s+or\s+queues\s+(create|delete)\b/,
-  /\buip\s+or\s+buckets\s+(create|delete)\b/,
-  /\buip\s+or\s+folders\s+(create|delete)\b/,
-  /\buip\s+or\s+processes\s+(create|delete)\b/,
-  /\buip\s+or\s+libraries\s+(delete|upload)\b/,
-  /\buip\s+or\s+(jobs|queue-items)\s+(start|stop|restart)\b/,
-  /\buip\s+maestro\s+(case|bpmn|flow)\s+(publish|deploy|run)\b/,
-  /\buip\s+codedapp\s+(publish|deploy|delete)\b/,
-  /\buip\s+codedagent\s+(publish|deploy|register)\b/,
-  /\buip\s+function\s+(publish|push)\b/,
-  /\buip\s+ixp\s+projects\s+(publish|unpublish|delete)\b/,
-  /\buip\s+is\s+connectors\s+(import|publish|delete)\b/,
-  /\buip\s+agenthub\s+mcp\s+(create|delete|update)\b/,
-];
-
-// AUTHORING subcommands that write local files but don't change tenant state.
-const AUTHORING_PATTERNS = [
-  /\buip\s+solution\s+init\b/,
-  /\buip\s+solution\s+restore\b/,
-  /\buip\s+solution\s+pack\b/,
-  /\buip\s+solution\s+projects\s+(add|remove|import)\b/,
-  /\buip\s+solution\s+resources\s+(refresh|add|remove|edit)\b/,
-  /\buip\s+maestro\s+case\s+init\b/,
-  /\buip\s+maestro\s+case\s+pack\b/,
-  /\buip\s+maestro\s+bpmn\s+(init|pack|compile)\b/,
-  /\buip\s+maestro\s+flow\s+init\b/,
-  /\buip\s+maestro\s+flow\s+pack\b/,
-  /\buip\s+rpa\s+(init|pack|restore)\b/,
-];
-
-function isMutating(cmd) {
-  return MUTATING_PATTERNS.some((re) => re.test(cmd));
-}
-
-function isAuthoring(cmd) {
-  return AUTHORING_PATTERNS.some((re) => re.test(cmd));
-}
-
-const mutating = isMutating(command);
-const authoring = isAuthoring(command);
-
-// READ_ONLY or unknown: pass through.
-if (!mutating && !authoring) {
+// If no mutating command, allow.
+if (!hasMutating) {
   process.exit(0);
 }
 
-// AUTHORING: always pass through (local files only).
-if (authoring && !mutating) {
-  process.exit(0);
-}
-
-// MUTATING: check the tenant.
-// The current tenant is available via UIPATH_CURRENT_TENANT (set by
-// set-session-env.mjs) or by checking `uip login status`.
+// At least one mutating command — check the tenant.
 const currentTenant = process.env.UIPATH_CURRENT_TENANT ?? process.env.OMU_TENANT ?? "";
-const isProd = currentTenant.toLowerCase() === "prod";
+const isProd = currentTenant.length > 0 && PROD_RE.test(currentTenant);
+const isKnown = currentTenant.length > 0;
 
-if (mutating) {
-  // Check bypass flag.
-  if (process.env.OMU_ALLOW_PROD_MUTATIONS === "1") {
-    process.stderr.write(
-      `⚠ [omu-h] MUTATING uip command allowed (OMU_ALLOW_PROD_MUTATIONS=1): ${command.slice(0, 120)}\n`,
-    );
-    process.exit(0);
-  }
-
-  if (isProd) {
-    process.stderr.write(
-      `✗ [omu-h] Blocked MUTATING uip command on Prod tenant.\n` +
-      `  Command: ${command.slice(0, 200)}\n` +
-      `  Set OMU_ALLOW_PROD_MUTATIONS=1 to bypass, or use omu-h rollback for safe reverts.\n`,
-    );
-    process.exit(2);
-  }
-
-  // Non-prod: warn but allow.
+if (ALLOW_PROD) {
   process.stderr.write(
-    `⚠ [omu-h] MUTATING uip command on tenant "${currentTenant}": ${command.slice(0, 120)}\n`,
+    `⚠ [omu-h] MUTATING uip command allowed (OMU_ALLOW_PROD_MUTATIONS=1): ${command.slice(0, 120)}\n`,
   );
   process.exit(0);
 }
 
+if (isProd) {
+  process.stderr.write(
+    `✗ [omu-h] Blocked MUTATING uip command on Prod tenant "${currentTenant}".\n` +
+    `  Command: ${command.slice(0, 200)}\n` +
+    `  Set OMU_ALLOW_PROD_MUTATIONS=1 to bypass, or use omu-h rollback for safe reverts.\n`,
+  );
+  process.exit(2);
+}
+
+if (!isKnown) {
+  process.stderr.write(
+    `✗ [omu-h] Blocked MUTATING uip command — tenant is unknown.\n` +
+    `  Command: ${command.slice(0, 200)}\n` +
+    `  Set UIPATH_CURRENT_TENANT (or OMU_TENANT) to your tenant name,\n` +
+    `  or set OMU_ALLOW_PROD_MUTATIONS=1 to bypass.\n`,
+  );
+  process.exit(2);
+}
+
+// Non-prod known tenant — warn but allow.
+process.stderr.write(
+  `⚠ [omu-h] MUTATING uip command on tenant "${currentTenant}": ${command.slice(0, 120)}\n`,
+);
 process.exit(0);
