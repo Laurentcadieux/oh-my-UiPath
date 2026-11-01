@@ -36,7 +36,7 @@ npm install -g @uipath/cli
 uip skills install
 
 # 3. Install oh-my-UiPath (published on npm)
-npm install -g oh-my-uipath
+npm install -g oh-my-uipath-h
 
 # 4. Authenticate to UiPath Cloud
 uip login
@@ -99,7 +99,7 @@ oh-my-UiPath/
 
 ## Status
 
-Published on [npm](https://www.npmjs.com/package/oh-my-uipath). Source on [GitHub](https://github.com/Laurentcadieux/oh-my-UiPath).
+Published on [npm](https://www.npmjs.com/package/oh-my-uipath-h) as `oh-my-uipath-h`. Source on [GitHub](https://github.com/Laurentcadieux/oh-my-UiPath).
 
 ## License
 
