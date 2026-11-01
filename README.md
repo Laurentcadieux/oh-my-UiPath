@@ -1,5 +1,7 @@
 # oh-my-UiPath
 
+> ⚠️ **Disclaimer — Research Only.** Not affiliated with UiPath. This is an independent helper; UiPath names and feeds are referenced only for compatibility. No warranty — you use this software at your own risk. The authors are not liable for damage, data loss, compliance issues, or failed restores. Downloads require outbound HTTPS to the feeds you use; you are responsible for license terms and organizational policies. Version resolution is heuristic (not a full NuGet graph solver). Authenticated feeds (private Azure Artifacts with PAT, etc.) are not built in; only anonymous NuGet v3 sources work unless you extend the code.
+
 > Multi-agent orchestration for the **UiPath platform**, powered by the `uip` CLI and the 27 installed UiPath skills.
 
 `oh-my-UiPath` (the `omu-h` command) wraps the [UiPath CLI (`uip`)](https://github.com/UiPath/uipathcli) and the [27 UiPath skills](https://github.com/uipath/skills) into a single cohesive orchestration system. Instead of memorising `uip` subcommands and remembering which skill owns which surface, you describe what you want — in natural language or via a CLI command — and `omu-h` routes the request to the right specialized **agent**, which drives the right **UiPath skill** and the right **`uip` command**.
