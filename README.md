@@ -7,6 +7,71 @@
 The upstream [UiPath skills](https://github.com/UiPath/skills) give you per-product knowledge: each skill knows its own surface (`uipath-planner` for PDD/SDD → tasks, `uipath-solution` for `.uipx` lifecycle, `uipath-review` for validation, `uipath-troubleshoot` for diagnosis). But they don't chain — there is no upstream mechanism that:
 
 - **Reverse-engineers anything into a UiPath solution** — the REA-UiPath agent (inspired by [REA](https://github.com/morluto/rea)) takes **ANY** existing system — a Python script, shell script, Excel macro, BPMN from another platform, a manual process description, an API integration — inspects it, documents it as a PDD, maps it to the right UiPath products (RPA, Maestro, Functions, Agents, API Workflows), scaffolds a `.uipx` solution, **and produces a Coded App (React/TypeScript) as the end-user presentation layer** — all from `omu-h rea <inputPath>`. Upstream has no equivalent: `uipath-planner` starts from a PDD you already wrote; REA-UiPath writes the PDD for you from any source. *(tests: `test/rea-uipath.test.ts` — 7 cases covering dry-run, happy path, failure, directory, non-existent path, BPMN mapping)*
+
+<details>
+<summary><b>How it works — REA-UiPath pipeline</b></summary>
+
+```
+Input (any)                    REA-UiPath                         Output (UiPath)
+─────────────                  ───────────                         ───────────────
+Python script     ─┐
+Shell script        │
+Excel macro         │   1. Inspect          ──→  Classify input type
+BPMN (other plat.)  ├── 2. Analyze         ──→  Understand process: inputs, outputs, steps, exceptions
+Manual process       │   3. Document (PDD)  ──→  Write pdd.md (Process Design Document)
+API integration      │   4. Map (SDD)      ──→  Map to UiPath products:
+Web form            ─┘       │                        ┌─ RPA            (Python/Shell/XAML)
+                             │                        ├─ Maestro Case   (process descriptions)
+                             │   5. Scaffold         ├─ Maestro BPMN    (BPMN from other platforms)
+                             │       │               ├─ Maestro Flow    (orchestration)
+                             │       │               ├─ Functions       (deterministic logic)
+                             │       │               ├─ API Workflows    (JSON/API)
+                             │       │               └─ Agents           (AI/LLM)
+                             │       │
+                             │       ├─ uip solution init <name>          → .uipx
+                             │       ├─ uip maestro case init <name>-case  → caseplan.json
+                             │       │
+                             │       └─ Coded App (end-user presentation layer):
+                             │           ├─ npx create-vite <name>-app --template react-ts
+                             │           ├─ vite.config.ts  (base: './')
+                             │           └─ src/uipath.ts   (@uipath/uipath-typescript SDK)
+                             │
+                             └─ 6. Discover existing
+                                    ├─ uip or processes list --all-folders
+                                    ├─ uip or assets list --all-folders
+                                    └─ uip or queues list --all-folders
+```
+
+**Input type → UiPath product mapping:**
+
+| Input | Automation product(s) | + Coded App |
+|-------|----------------------|-------------|
+| Python / Shell / PowerShell | RPA, Functions | ✅ |
+| BPMN (from another platform) | Maestro BPMN | ✅ |
+| XAML | RPA | ✅ |
+| JSON (API config / agent) | API Workflows, Agents | ✅ |
+| JavaScript / TypeScript | Functions | ✅ |
+| Text / YAML (process description) | Maestro Case, Maestro Flow | ✅ |
+| Directory (mixed) | Multi-project Solution | ✅ |
+
+**What gets produced:**
+- `pdd.md` — Process Design Document (inputs, outputs, steps, exceptions, target products)
+- `.uipx` solution scaffold (via `uip solution init`)
+- `caseplan.json` (via `uip maestro case init`, if mapped to Maestro Case)
+- `{name}-app/` — Coded App (React/TypeScript Vite) with:
+  - `vite.config.ts` with `base: './'` (required for UiPath Coded Apps)
+  - `src/uipath.ts` with `@uipath/uipath-typescript` SDK init
+  - Deployable via `uip codedapp pack` → `publish` → `deploy`
+
+**Usage:**
+```bash
+omu-h rea ./legacy-script.py
+omu-h rea ./process.bpmn
+omu-h rea ./manual-process.md
+omu-h rea ./api-integration/
+```
+
+</details>
 - **Blocks dangerous mutations on Prod** — a Claude Code `PreToolUse` hook (`hooks/safety-guard.mjs`) intercepts every Bash command containing a `uip` invocation, classifies it as READ_ONLY / AUTHORING / MUTATING, and **blocks MUTATING commands on Prod tenants** (exit 2). Fail-closed: unknown tenant also blocks. Configurable via `OMU_PROD_TENANT_PATTERN` and `.omu.json`. Bypass with `OMU_ALLOW_PROD_MUTATIONS=1`. *(tests: `test/safety-guard.test.ts` — 30+ cases covering Prod, Production, prod-eu, empty tenant, chained commands, npx, absolute paths, bypass)*
 - **Gates on skill maturity** — the hook also blocks MUTATING commands driven by Preview or In-development skills on Prod, even with the prod bypass, unless `OMU_ALLOW_PREVIEW=1`. Unknown skill status is treated as blocked, not allowed. *(tests: `test/safety-guard.test.ts` — 5 skill-maturity cases; `test/skill-status.test.ts` — 10 cases)*
 - **Validates before deploy** — the reviewer agent runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, parses the JSON output for real severity (Critical / Warning / Info), and **gates the pipeline on Critical findings**. *(tests: `test/phase2-agents.test.ts` — reviewer suite with 6 cases including failure paths)*
