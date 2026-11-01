@@ -93,7 +93,7 @@ uip skills install
 ### Step 4: Install oh-my-UiPath
 
 ```bash
-npm install -g oh-my-uipath-h
+npm install -g oh-my-uipath-h@latest
 ```
 
 ### Step 5: Authenticate to UiPath Cloud
@@ -167,6 +167,7 @@ After install (Step 7), the 6 agents (`orchestrator`, `reviewer`, `quality-gate`
 
 ## Features
 
+- **REA-UiPath** — `omu-h rea <input>` reverse-engineers any existing system (script, BPMN, macro, process doc) into a UiPath solution with a Coded App frontend. See [`src/agents/rea-uipath.ts`](src/agents/rea-uipath.ts).
 - **Safety hook** — a Claude Code `PreToolUse` hook that blocks MUTATING `uip` commands on Prod tenants. See [`hooks/safety-guard.mjs`](hooks/safety-guard.mjs).
 - **Skill maturity gating** — blocks Preview/In-development skills on Prod. See [`src/skill-status.ts`](src/skill-status.ts).
 - **Review gate** — the reviewer agent runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, parses severity, and gates on Critical findings. See [`src/agents/reviewer.ts`](src/agents/reviewer.ts).
@@ -174,7 +175,9 @@ After install (Step 7), the 6 agents (`orchestrator`, `reviewer`, `quality-gate`
 - **Recovery recommendations** — classifies failures and recommends `uip` commands (never auto-applies). See [`src/engine/recovery.ts`](src/engine/recovery.ts).
 - **Rollback** — records pre-deploy process versions and restores them via `uip or processes rollback`. See [`src/engine/rollback.ts`](src/engine/rollback.ts).
 - **Environment promotion** — `dev → test → prod` with gates and `--confirm` for prod. See [`src/engine/environments.ts`](src/engine/environments.ts).
+- **Token ROI** — `omu-h tokens` / `omu-h roi` tracks LLM token usage per agent and per stage, with cost estimate. See [`src/token-tracker.ts`](src/token-tracker.ts).
 - **`setup` command** — `omu-h setup` checks all prerequisites (uip CLI, skills, auth) in one command.
+- **`sync` command** — `omu-h sync` reports skill maturity (Stable / Preview / In-development) from upstream.
 - **Dry-run & verbose** — every command supports `--dry-run` and `--verbose`.
 
 ## The installed UiPath skills
