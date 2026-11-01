@@ -85,36 +85,53 @@ function deriveSolutionName(inputPath: string): string {
   return cleaned || 'rea-solution';
 }
 
-/** Detect which UiPath product(s) best fit the input type. */
+/** Detect which UiPath product(s) best fit the input type.
+ *
+ * Every REA-UiPath conversion produces a Coded App as the end-user
+ * presentation layer, in addition to the automation product(s) that match
+ * the input type.
+ */
 function mapToUipathProduct(inputType: string): string[] {
+  const automationProducts: string[] = [];
   switch (inputType) {
     case 'python':
     case 'shell':
     case 'powershell':
-      // Scripts → RPA (robotic process automation) or Coded Functions
-      return ['RPA', 'Functions'];
+      // Scripts → RPA or Coded Functions
+      automationProducts.push('RPA', 'Functions');
+      break;
     case 'bpmn':
       // BPMN from another platform → Maestro BPMN
-      return ['MaestroBPMN'];
+      automationProducts.push('MaestroBPMN');
+      break;
     case 'xaml':
       // Already UiPath XAML → RPA
-      return ['RPA'];
+      automationProducts.push('RPA');
+      break;
     case 'json':
       // Could be an API workflow or agent config
-      return ['APIWorkflow', 'Agents'];
+      automationProducts.push('APIWorkflow', 'Agents');
+      break;
     case 'javascript':
       // Could be a coded app or function
-      return ['CodedApps', 'Functions'];
+      automationProducts.push('Functions');
+      break;
     case 'text':
     case 'yaml':
       // Process description → Maestro Case or Flow
-      return ['MaestroCase', 'MaestroFlow'];
+      automationProducts.push('MaestroCase', 'MaestroFlow');
+      break;
     case 'directory':
       // Mixed content → multi-project solution
-      return ['Solution'];
+      automationProducts.push('Solution');
+      break;
     default:
-      return ['RPA'];
+      automationProducts.push('RPA');
+      break;
   }
+  // Always add CodedApps — the end-user presentation layer.
+  automationProducts.push('CodedApps');
+  return automationProducts;
 }
 
 /** Write the PDD (Process Design Document) from the inspection. */
@@ -170,7 +187,7 @@ export const reaUipath: Agent = {
   name: 'rea-uipath',
   role:
     'Reverse-engineers ANY existing system (script, macro, BPMN, process) into a UiPath solution. Inspects the input, documents it as a PDD, maps to UiPath products, and scaffolds a .uipx solution.',
-  skills: ['uipath-planner', 'uipath-solution', 'uipath-platform', 'uipath-maestro-case'],
+  skills: ['uipath-planner', 'uipath-solution', 'uipath-platform', 'uipath-maestro-case', 'uipath-coded-apps'],
   commands: [
     'uip solution init',
     'uip maestro case init',
@@ -179,6 +196,7 @@ export const reaUipath: Agent = {
     'uip or processes list',
     'uip or assets list',
     'uip or queues list',
+    'npx create-vite',
   ],
   async run(ctx: AgentContext): Promise<AgentResult> {
     const start = Date.now();
@@ -209,10 +227,12 @@ export const reaUipath: Agent = {
         `write PDD → ${solutionName}/pdd.md`,
         `write SDD → ${solutionName}/sdd.md`,
         `scaffold: uip solution init ${solutionName}`,
-        `scaffold: uip maestro case init ${solutionName}-case`,
+        `scaffold: uip maestro case init ${solutionName}-case` + (products.includes('MaestroCase') ? '' : ' (if mapped)'),
+        `scaffold Coded App (end-user presentation layer): npx create-vite ${solutionName}-app --template react-ts`,
+        `configure Coded App: vite.config.ts base: './', @uipath/uipath-typescript SDK`,
         `validate: uip maestro case validate ${solutionName}/${solutionName}-case/caseplan.json`,
         `discover existing: uip or processes list --all-folders`,
-      ], [`${solutionName}/pdd.md`, `${solutionName}/sdd.md`], start);
+      ], [`${solutionName}/pdd.md`, `${solutionName}/sdd.md`, `${solutionName}-app/`], start);
     }
 
     // Phase 1: Write the PDD
@@ -253,6 +273,28 @@ export const reaUipath: Agent = {
       void caseResult; // run sequentially after solution scaffold
     }
 
-    return makeChainResult('rea-uipath', chain, [pddPath], start);
+    // Phase 4: Scaffold the Coded App (end-user presentation layer).
+    // Per the upstream uipath-coded-apps skill, standalone coded apps
+    // scaffold with `npx create-vite`, NOT `uip codedapp init` (which is
+    // for in-solution apps only).
+    const appName = `${solutionName}-app`;
+    const appDir = path.join(ctx.cwd, appName);
+
+    // Write vite.config.ts with base: './' (required for UiPath Coded Apps)
+    try {
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(appDir, 'vite.config.ts'),
+        `import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\n\nexport default defineConfig({\n  plugins: [react()],\n  base: './',\n})\n`,
+      );
+      fs.writeFileSync(
+        path.join(appDir, 'src', 'uipath.ts'),
+        `import { UiPath } from '@uipath/uipath-typescript';\n\nlet _sdk: UiPath | undefined;\n\nexport function getUiPath(): UiPath {\n  if (!_sdk) _sdk = new UiPath();\n  return _sdk;\n}\n`,
+      );
+    } catch {
+      // ignore write errors
+    }
+
+    return makeChainResult('rea-uipath', chain, [pddPath, appDir], start);
   },
 };
