@@ -1,0 +1,7 @@
+{
+  "name": "oh-my-uipath",
+  "owner": { "name": "Laurent Cadieux" },
+  "plugins": [
+    { "name": "oh-my-uipath-h", "source": "./", "description": "Multi-agent orchestration for UiPath platform" }
+  ]
+}
