@@ -17,7 +17,8 @@
     "AGENTS.md",
     "README.md",
     "LICENSE",
-    "hooks"
+    "hooks",
+    "assets"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

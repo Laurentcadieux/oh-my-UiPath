@@ -231,7 +231,53 @@ describe('safety-guard: command normalization', () => {
   });
 });
 
-// ─── Configurable prod pattern ───────────────────────────────────────
+// ─── Skill maturity gate ─────────────────────────────────────────────
+
+describe('safety-guard: skill maturity gate (Phase 2)', () => {
+  it('blocks Preview skill on Prod even with prod bypass (exit 2)', () => {
+    // maestro case publish → uipath-maestro-case (Preview)
+    const r = runGuard('uip maestro case publish MyPackage', {
+      UIPATH_CURRENT_TENANT: 'Prod',
+      OMU_ALLOW_PROD_MUTATIONS: '1',
+    });
+    assert.equal(r.exitCode, 2);
+    assert.ok(r.stderr.includes('preview') || r.stderr.includes('Preview'));
+  });
+
+  it('allows Preview skill on Prod with both bypasses (exit 0)', () => {
+    const r = runGuard('uip maestro case publish MyPackage', {
+      UIPATH_CURRENT_TENANT: 'Prod',
+      OMU_ALLOW_PROD_MUTATIONS: '1',
+      OMU_ALLOW_PREVIEW: '1',
+    });
+    assert.equal(r.exitCode, 0);
+  });
+
+  it('allows Stable skill on Prod with prod bypass only (exit 0)', () => {
+    // solution publish → uipath-solution (Stable)
+    const r = runGuard('uip solution publish MyPackage.zip', {
+      UIPATH_CURRENT_TENANT: 'Prod',
+      OMU_ALLOW_PROD_MUTATIONS: '1',
+    });
+    assert.equal(r.exitCode, 0);
+  });
+
+  it('blocks In-development skill on Prod even with prod bypass (exit 2)', () => {
+    // maestro bpmn publish → uipath-maestro-bpmn (In-development)
+    const r = runGuard('uip maestro bpmn publish MyBpmn', {
+      UIPATH_CURRENT_TENANT: 'Prod',
+      OMU_ALLOW_PROD_MUTATIONS: '1',
+    });
+    assert.equal(r.exitCode, 2);
+  });
+
+  it('skill maturity gate does not apply on non-prod (exit 0)', () => {
+    const r = runGuard('uip maestro case publish MyPackage', {
+      UIPATH_CURRENT_TENANT: 'Dev',
+    });
+    assert.equal(r.exitCode, 0);
+  });
+});
 
 describe('safety-guard: configurable prod pattern', () => {
   it('respects OMU_PROD_TENANT_PATTERN env', () => {

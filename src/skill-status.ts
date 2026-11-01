@@ -77,16 +77,16 @@ export function isSkillAllowed(
 ): { allowed: boolean; reason?: string } {
   const status = getSkillStatus(name, map);
   if (status === 'stable') return { allowed: true };
-  if (status === 'unknown') return { allowed: true }; // unknown = not in upstream catalog, allow
 
-  const isProd = tenant?.toLowerCase() === 'prod';
+  // Preview, In-development, or unknown — gate on prod.
+  const isProd = tenant !== undefined && /^(prod|production)([-_].*)?$/i.test(tenant);
   if (isProd && !allowPreview) {
     return {
       allowed: false,
       reason: `Skill "${name}" is ${status} — not allowed against prod without --allow-preview`,
     };
   }
-  return { allowed: true, reason: status === 'preview' ? `Warning: skill "${name}" is Preview` : `Warning: skill "${name}" is In-development` };
+  return { allowed: true, reason: `Warning: skill "${name}" is ${status}` };
 }
 
 /** Compare installed skills against upstream status map — report changes. */

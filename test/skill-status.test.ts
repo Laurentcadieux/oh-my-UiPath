@@ -27,7 +27,7 @@ describe('isSkillAllowed', () => {
   it('allows preview skills on non-prod without --allow-preview', () => {
     const r = isSkillAllowed('uipath-troubleshoot', 'dev', false, testMap);
     assert.equal(r.allowed, true);
-    assert.ok(r.reason?.includes('Preview'));
+    assert.ok(r.reason?.includes('preview'));
   });
 
   it('refuses preview skills on prod without --allow-preview', () => {
@@ -47,13 +47,23 @@ describe('isSkillAllowed', () => {
     assert.ok(r.reason?.includes('--allow-preview'));
   });
 
-  it('allows unknown skills (not in upstream catalog)', () => {
+  it('blocks unknown skills on prod (fail-closed)', () => {
     const r = isSkillAllowed('uipath-unknown-skill', 'prod', false, testMap);
+    assert.equal(r.allowed, false);
+  });
+
+  it('allows unknown skills on non-prod', () => {
+    const r = isSkillAllowed('uipath-unknown-skill', 'dev', false, testMap);
     assert.equal(r.allowed, true);
   });
 
   it('treats Prod (capital) the same as prod', () => {
     const r = isSkillAllowed('uipath-troubleshoot', 'Prod', false, testMap);
+    assert.equal(r.allowed, false);
+  });
+
+  it('treats Production the same as prod', () => {
+    const r = isSkillAllowed('uipath-troubleshoot', 'Production', false, testMap);
     assert.equal(r.allowed, false);
   });
 });

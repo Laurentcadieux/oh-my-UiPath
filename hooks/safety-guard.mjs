@@ -68,6 +68,74 @@ const PROD_RE = new RegExp(PROD_PATTERN_STR, "i");
 /** Bypass flag for all prod mutations. */
 const ALLOW_PROD = process.env.OMU_ALLOW_PROD_MUTATIONS === "1";
 
+/** Bypass flag for Preview/In-development skills on prod. */
+const ALLOW_PREVIEW = process.env.OMU_ALLOW_PREVIEW === "1";
+
+// ─── Skill maturity ──────────────────────────────────────────────────
+
+/** Map uip subcommand prefix → skill name (from the upstream skill catalog). */
+const SUBCMD_TO_SKILL = {
+  "solution": "uipath-solution",
+  "or": "uipath-platform",
+  "maestro case": "uipath-maestro-case",
+  "maestro bpmn": "uipath-maestro-bpmn",
+  "maestro flow": "uipath-maestro-flow",
+  "rpa": "uipath-rpa",
+  "codedapp": "uipath-coded-apps",
+  "codedagent": "uipath-agents",
+  "function": "uipath-functions",
+  "ixp": "uipath-ixp",
+  "is": "uipath-connector-builder",
+  "agenthub": "uipath-mcp-servers",
+  "admin": "uipath-admin",
+  "aops": "uipath-aops",
+  "gov": "uipath-governance",
+  "insights": "uipath-insights",
+  "pm": "uipath-process-mining",
+};
+
+/** Map a uip subcommand string to its skill name. */
+function subcmdToSkill(subcmd) {
+  for (const [prefix, skill] of Object.entries(SUBCMD_TO_SKILL)) {
+    if (subcmd.startsWith(prefix)) return skill;
+  }
+  return undefined;
+}
+
+/** Load skill-status.json from the plugin root, skills root, or bundled assets. */
+function loadSkillStatuses() {
+  const candidates = [
+    process.env.CLAUDE_PLUGIN_ROOT
+      ? join(process.env.CLAUDE_PLUGIN_ROOT, "assets", "skill-status.json")
+      : null,
+    join(homedir(), ".agents", "skills", "assets", "skill-status.json"),
+    join(process.cwd(), "assets", "skill-status.json"),
+  ].filter(Boolean);
+
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      try {
+        const raw = readFileSync(p, "utf8");
+        const data = JSON.parse(raw);
+        return data?.skills ?? {};
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }
+  return {};
+}
+
+const skillStatuses = loadSkillStatuses();
+
+/** Get the status of a skill: 'stable' | 'preview' | 'in-development' | 'unknown'. */
+function getSkillStatus(skillName) {
+  if (!skillName) return "unknown";
+  const entry = skillStatuses[skillName];
+  if (!entry) return "unknown";
+  return entry.status ?? "unknown";
+}
+
 // ─── Command normalization ────────────────────────────────────────────
 
 /**
@@ -251,34 +319,52 @@ const currentTenant = process.env.UIPATH_CURRENT_TENANT ?? process.env.OMU_TENAN
 const isProd = currentTenant.length > 0 && PROD_RE.test(currentTenant);
 const isKnown = currentTenant.length > 0;
 
+// ── Gate 1: Prod mutation gate ──
+if ((isProd || !isKnown) && !ALLOW_PROD) {
+  if (isProd) {
+    process.stderr.write(
+      `✗ [omu-h] Blocked MUTATING uip command on Prod tenant "${currentTenant}".\n` +
+      `  Command: ${command.slice(0, 200)}\n` +
+      `  Set OMU_ALLOW_PROD_MUTATIONS=1 to bypass, or use omu-h rollback for safe reverts.\n`,
+    );
+  } else {
+    process.stderr.write(
+      `✗ [omu-h] Blocked MUTATING uip command — tenant is unknown.\n` +
+      `  Command: ${command.slice(0, 200)}\n` +
+      `  Set UIPATH_CURRENT_TENANT (or OMU_TENANT) to your tenant name,\n` +
+      `  or set OMU_ALLOW_PROD_MUTATIONS=1 to bypass.\n`,
+    );
+  }
+  process.exit(2);
+}
+
+// ── Gate 2: Skill maturity gate (only on Prod) ──
+// Even if the prod gate is bypassed, block mutating commands driven by
+// Preview/In-development/unknown skills on Prod unless OMU_ALLOW_PREVIEW=1.
+if (isProd && !ALLOW_PREVIEW) {
+  const mutatingCmds = uipCmds.filter((c) => classify(c) === "MUTATING");
+  for (const cmd of mutatingCmds) {
+    const skill = subcmdToSkill(cmd);
+    const status = getSkillStatus(skill);
+    if (status === "preview" || status === "in-development" || status === "unknown") {
+      process.stderr.write(
+        `✗ [omu-h] Blocked MUTATING uip command using ${status} skill "${skill}" on Prod.\n` +
+        `  Command: ${command.slice(0, 200)}\n` +
+        `  Set OMU_ALLOW_PREVIEW=1 to bypass for Preview/In-development skills.\n`,
+      );
+      process.exit(2);
+    }
+  }
+}
+
+// ── Allowed ──
 if (ALLOW_PROD) {
   process.stderr.write(
     `⚠ [omu-h] MUTATING uip command allowed (OMU_ALLOW_PROD_MUTATIONS=1): ${command.slice(0, 120)}\n`,
   );
-  process.exit(0);
-}
-
-if (isProd) {
+} else {
   process.stderr.write(
-    `✗ [omu-h] Blocked MUTATING uip command on Prod tenant "${currentTenant}".\n` +
-    `  Command: ${command.slice(0, 200)}\n` +
-    `  Set OMU_ALLOW_PROD_MUTATIONS=1 to bypass, or use omu-h rollback for safe reverts.\n`,
+    `⚠ [omu-h] MUTATING uip command on tenant "${currentTenant}": ${command.slice(0, 120)}\n`,
   );
-  process.exit(2);
 }
-
-if (!isKnown) {
-  process.stderr.write(
-    `✗ [omu-h] Blocked MUTATING uip command — tenant is unknown.\n` +
-    `  Command: ${command.slice(0, 200)}\n` +
-    `  Set UIPATH_CURRENT_TENANT (or OMU_TENANT) to your tenant name,\n` +
-    `  or set OMU_ALLOW_PROD_MUTATIONS=1 to bypass.\n`,
-  );
-  process.exit(2);
-}
-
-// Non-prod known tenant — warn but allow.
-process.stderr.write(
-  `⚠ [omu-h] MUTATING uip command on tenant "${currentTenant}": ${command.slice(0, 120)}\n`,
-);
 process.exit(0);
