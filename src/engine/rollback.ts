@@ -6,6 +6,12 @@
  * snapshot. On rollback, read the last snapshot and restore each
  * process via `uip or processes rollback <key> --folder-path <p>`.
  *
+ * Limitation: processes created by the deploy itself (new processes
+ * added by the .uipx) are NOT rolled back — `uip or processes rollback`
+ * only reverts existing processes to their previous version. Newly
+ * created processes remain after rollback and must be manually removed
+ * if needed.
+ *
  * Verified commands (uip v1.202.1):
  * - `uip or processes list --all-folders --output json` — list all processes
  * - `uip or processes rollback <key> --folder-path <p> --output json` — rollback
