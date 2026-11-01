@@ -230,6 +230,25 @@ export function createCli(): Command {
   withRunOptions(program.command('run <workflow>').description('Run any workflow by name'))
     .action(async (workflow: string, opts: Record<string, unknown>) => runWorkflow(workflow, opts));
 
+  // --- rea (Reverse Engineer Anything → UiPath) ---
+  withRunOptions(
+    program
+      .command('rea <inputPath>')
+      .description('Reverse-engineer ANY existing system (script, BPMN, process) into a UiPath solution'),
+  )
+    .action(async (inputPath: string, opts: Record<string, unknown>) => {
+      const ctx = buildCtx({ ...opts, solution: inputPath });
+      console.log(chalk.cyan(`\noh-my-UiPath REA: Reverse Engineering → UiPath\n`));
+      console.log(chalk.gray(`Input: ${inputPath}\n`));
+      const reaAgent = getAgent('rea-uipath');
+      if (!reaAgent) {
+        console.error(chalk.red('rea-uipath agent not found'));
+        process.exitCode = 1;
+        return;
+      }
+      printResults([await reaAgent.run(ctx)], ctx.verbose);
+    });
+
   // --- promote ---
   withRunOptions(
     program

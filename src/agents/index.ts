@@ -7,12 +7,14 @@ import { deploymentManager } from './deployment-manager';
 import { qualityGate } from './quality-gate';
 import { reviewer } from './reviewer';
 import { diagnostician } from './diagnostician';
+import { reaUipath } from './rea-uipath';
 
 export { orchestrator } from './orchestrator';
 export { deploymentManager } from './deployment-manager';
 export { qualityGate } from './quality-gate';
 export { reviewer } from './reviewer';
 export { diagnostician } from './diagnostician';
+export { reaUipath } from './rea-uipath';
 
 /** Ordered list of all agents (orchestrator first). */
 export const agentList: readonly Agent[] = [
@@ -21,6 +23,7 @@ export const agentList: readonly Agent[] = [
   qualityGate,
   deploymentManager,
   diagnostician,
+  reaUipath,
 ];
 
 /** Name -> agent lookup. */

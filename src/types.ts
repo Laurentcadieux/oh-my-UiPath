@@ -106,6 +106,14 @@ export interface RollbackResult {
   readonly output: string;
 }
 
+/** Local analysis produced by the REA-UiPath agent. */
+export interface ReaAnalysis {
+  readonly solutionDir: string;
+  readonly uipx?: { name: string; projects: unknown[] };
+  readonly caseplan?: { stages: number };
+  readonly artifacts: readonly string[];
+}
+
 /** Structured result of a single agent run. */
 export interface AgentResult {
   /** Name of the agent that produced this result. */

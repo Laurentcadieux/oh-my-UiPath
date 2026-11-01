@@ -7,7 +7,8 @@
   "agents": [
     "./agents/orchestrator.md",
     "./agents/deployment-manager.md",
-    "./agents/quality-gate.md"
+    "./agents/quality-gate.md",
+    "./agents/rea-uipath.md"
   ],
   "commands": [
     "./commands/autopilot.md",
