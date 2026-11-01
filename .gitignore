@@ -47,3 +47,5 @@ oh-my-uipath-0.1.0.tgz
 # Local-only tracking files (not in public repo)
 memory.md
 RaceTime.md
+.omu-tokens.json
+.omu-versions.json

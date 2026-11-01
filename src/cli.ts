@@ -17,7 +17,7 @@ import { loadConfig } from './config';
 import { loadSkillStatusMap, buildSyncReport, loadVersionManifest } from './skill-status';
 import { promote, printPromotion } from './engine/environments';
 import { rollback, printRollback } from './engine/rollback';
-import { buildTokenReport, formatTokenReport, getTrackedRecords } from './token-tracker';
+import { buildTokenReport, formatTokenReport, loadTokens } from './token-tracker';
 
 /** Build an AgentContext from CLI options. */
 function buildCtx(opts: Record<string, unknown>): AgentContext {
@@ -90,7 +90,7 @@ export function createCli(): Command {
   program
     .name('omu-h')
     .description('oh-my-UiPath — multi-agent orchestration for the UiPath platform')
-    .version('2.0.4');
+    .version('2.0.5');
 
   // --- setup ---
   program
@@ -289,12 +289,12 @@ export function createCli(): Command {
     .command('tokens')
     .description('Show token usage report from the last pipeline run (UiPath-Coding-Agent-ROI)')
     .action(() => {
-      const records = getTrackedRecords();
+      const records = loadTokens();
       if (records.length === 0) {
         console.log(chalk.gray('No token data. Run a pipeline first (omu-h autopilot ...).'));
         return;
       }
-      const report = buildTokenReport();
+      const report = buildTokenReport(records);
       console.log(formatTokenReport(report));
     });
 
@@ -302,13 +302,12 @@ export function createCli(): Command {
     .command('roi')
     .description('Show ROI report: token usage + cost estimate from the last pipeline run')
     .action(() => {
-      const records = getTrackedRecords();
+      const records = loadTokens();
       if (records.length === 0) {
         console.log(chalk.gray('No token data. Run a pipeline first (omu-h autopilot ...).'));
         return;
       }
-      const report = buildTokenReport();
-      // Cost estimate: $0.003/1K input + $0.015/1K output (rough Claude pricing)
+      const report = buildTokenReport(records);
       const costInput = (report.totalInput / 1000) * 0.003;
       const costOutput = (report.totalOutput / 1000) * 0.015;
       const costTotal = costInput + costOutput;

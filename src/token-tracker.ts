@@ -8,42 +8,30 @@
  *
  * How it works:
  * - Each agent run is wrapped by the pipeline to record token usage
- * - The tracker reads token counts from the Claude Code session
- *   environment (CLAUDE_SESSION_TOKENS env var or the session
- *   transcript metadata)
- * - If no session data is available, it falls back to estimating
- *   tokens from the agent output size (rough: 1 token ≈ 4 chars)
- * - Results are stored in .omu-tokens.json and printed with
- *   `omu-h tokens` or `omu-h roi`
+ * - Tokens are estimated from output size (rough: 1 token ≈ 4 chars)
+ * - Records are persisted to .omu-tokens.json in the project folder
+ * - `omu-h tokens` prints the report
+ * - `omu-h roi` prints the report + cost estimate
  */
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /** A single token usage record for one agent run. */
 export interface TokenRecord {
-  /** Agent name (e.g. "orchestrator", "reviewer"). */
   readonly agent: string;
-  /** Workflow or stage name (e.g. "autopilot", "review"). */
   readonly stage: string;
-  /** Input tokens (prompt). */
   readonly inputTokens: number;
-  /** Output tokens (completion). */
   readonly outputTokens: number;
-  /** Total tokens (input + output). */
   readonly totalTokens: number;
-  /** Wall-clock duration in ms. */
   readonly durationMs: number;
-  /** Timestamp (epoch ms). */
   readonly timestamp: number;
 }
 
 /** Aggregated token usage report. */
 export interface TokenReport {
-  /** Total input tokens across all agents. */
   readonly totalInput: number;
-  /** Total output tokens across all agents. */
   readonly totalOutput: number;
-  /** Total tokens (input + output). */
   readonly totalTokens: number;
-  /** Per-agent breakdown. */
   readonly perAgent: ReadonlyArray<{
     readonly agent: string;
     readonly inputTokens: number;
@@ -51,7 +39,6 @@ export interface TokenReport {
     readonly totalTokens: number;
     readonly calls: number;
   }>;
-  /** Per-stage breakdown. */
   readonly perStage: ReadonlyArray<{
     readonly stage: string;
     readonly inputTokens: number;
@@ -59,8 +46,18 @@ export interface TokenReport {
     readonly totalTokens: number;
     readonly calls: number;
   }>;
-  /** Number of records. */
   readonly recordCount: number;
+}
+
+/** Path to the token store file. */
+const TOKENS_FILE = '.omu-tokens.json';
+
+/** In-memory token store (cleared per pipeline run). */
+let _records: TokenRecord[] = [];
+
+/** Get the path to the token store file for a given cwd. */
+function tokensFilePath(cwd?: string): string {
+  return path.join(cwd ?? process.cwd(), TOKENS_FILE);
 }
 
 /** Estimate tokens from a string (rough: 1 token ≈ 4 chars). */
@@ -76,8 +73,6 @@ export function recordTokens(
   durationMs: number,
 ): TokenRecord {
   const outputTokens = estimateTokens(output);
-  // Input tokens can't be measured without session data — estimate
-  // as roughly equal to output for agent runs (system prompt + context).
   const inputTokens = Math.round(outputTokens * 1.5);
   return {
     agent,
@@ -90,15 +85,12 @@ export function recordTokens(
   };
 }
 
-/** In-memory token store (cleared per pipeline run). */
-let _records: TokenRecord[] = [];
-
-/** Add a token record. */
+/** Add a token record to the in-memory store. */
 export function trackTokens(record: TokenRecord): void {
   _records.push(record);
 }
 
-/** Get all tracked records. */
+/** Get all tracked records from the in-memory store. */
 export function getTrackedRecords(): readonly TokenRecord[] {
   return _records;
 }
@@ -108,34 +100,55 @@ export function resetTokenTracker(): void {
   _records = [];
 }
 
-/** Build a token report from the current records. */
-export function buildTokenReport(records: readonly TokenRecord[] = _records): TokenReport {
+/** Persist the in-memory records to .omu-tokens.json in the given cwd. */
+export function persistTokens(cwd?: string): void {
+  if (_records.length === 0) return;
+  const filePath = tokensFilePath(cwd);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(_records, null, 2));
+  } catch {
+    // ignore write errors
+  }
+}
+
+/** Load records from .omu-tokens.json in the given cwd. */
+export function loadTokens(cwd?: string): TokenRecord[] {
+  const filePath = tokensFilePath(cwd);
+  try {
+    if (!fs.existsSync(filePath)) return [];
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw) as TokenRecord[];
+  } catch {
+    return [];
+  }
+}
+
+/** Build a token report from records. */
+export function buildTokenReport(records?: readonly TokenRecord[]): TokenReport {
+  const r = records ?? _records;
   let totalInput = 0;
   let totalOutput = 0;
 
-  // Per-agent aggregation
   const agentMap = new Map<string, { input: number; output: number; total: number; calls: number }>();
   const stageMap = new Map<string, { input: number; output: number; total: number; calls: number }>();
 
-  for (const r of records) {
-    totalInput += r.inputTokens;
-    totalOutput += r.outputTokens;
+  for (const rec of r) {
+    totalInput += rec.inputTokens;
+    totalOutput += rec.outputTokens;
 
-    // Agent aggregation
-    const a = agentMap.get(r.agent) ?? { input: 0, output: 0, total: 0, calls: 0 };
-    a.input += r.inputTokens;
-    a.output += r.outputTokens;
-    a.total += r.totalTokens;
+    const a = agentMap.get(rec.agent) ?? { input: 0, output: 0, total: 0, calls: 0 };
+    a.input += rec.inputTokens;
+    a.output += rec.outputTokens;
+    a.total += rec.totalTokens;
     a.calls += 1;
-    agentMap.set(r.agent, a);
+    agentMap.set(rec.agent, a);
 
-    // Stage aggregation
-    const s = stageMap.get(r.stage) ?? { input: 0, output: 0, total: 0, calls: 0 };
-    s.input += r.inputTokens;
-    s.output += r.outputTokens;
-    s.total += r.totalTokens;
+    const s = stageMap.get(rec.stage) ?? { input: 0, output: 0, total: 0, calls: 0 };
+    s.input += rec.inputTokens;
+    s.output += rec.outputTokens;
+    s.total += rec.totalTokens;
     s.calls += 1;
-    stageMap.set(r.stage, s);
+    stageMap.set(rec.stage, s);
   }
 
   const perAgent = [...agentMap.entries()]
@@ -164,7 +177,7 @@ export function buildTokenReport(records: readonly TokenRecord[] = _records): To
     totalTokens: totalInput + totalOutput,
     perAgent,
     perStage,
-    recordCount: records.length,
+    recordCount: r.length,
   };
 }
 

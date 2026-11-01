@@ -14,7 +14,7 @@ import {
 } from './task-graph';
 import { loadSkillStatusMap, isSkillAllowed } from '../skill-status';
 import { attemptRecovery } from './recovery';
-import { trackTokens, resetTokenTracker, recordTokens } from '../token-tracker';
+import { trackTokens, resetTokenTracker, recordTokens, persistTokens } from '../token-tracker';
 import chalk from 'chalk';
 
 export interface EngineOptions {
@@ -95,5 +95,7 @@ export async function runPipeline(
       break;
     }
   }
+  // Persist token records to .omu-tokens.json in the project folder.
+  persistTokens(ctx.cwd);
   return { results };
 }
