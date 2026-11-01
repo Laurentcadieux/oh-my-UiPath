@@ -1,7 +1,7 @@
 {
   "name": "oh-my-uipath-h",
   "version": "1.2.0",
-  "description": "Multi-agent orchestration for the UiPath platform, powered by the uip CLI and the 27 UiPath skills.",
+  "description": "Multi-agent orchestration for the UiPath platform, powered by the uip CLI and the 27 UiPath skills. Research only — not affiliated with UiPath.",
   "license": "MIT",
   "author": "Laurent Cadieux <laurent@cadieux.dev>",
   "type": "commonjs",
