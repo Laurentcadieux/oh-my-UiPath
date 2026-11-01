@@ -11,15 +11,13 @@ import { runParallel } from '../src/engine/worker-pool';
 import { clearSnapshotCache, getCachedSnapshot, setCachedSnapshot } from '../src/engine/types';
 
 describe('buildAutopilotDag', () => {
-  it('builds a 6-task DAG for the autopilot pipeline', () => {
+  it('builds a 4-task DAG for the autopilot pipeline', () => {
     const dag = buildAutopilotDag(testCtx());
-    assert.equal(dag.length, 6);
+    assert.equal(dag.length, 4);
     assert.equal(dag[0].id, 'plan');
-    assert.equal(dag[1].id, 'case');
-    assert.equal(dag[2].id, 'build');
-    assert.equal(dag[3].id, 'review');
-    assert.equal(dag[4].id, 'deploy');
-    assert.equal(dag[5].id, 'test');
+    assert.equal(dag[1].id, 'review');
+    assert.equal(dag[2].id, 'deploy');
+    assert.equal(dag[3].id, 'test');
   });
 
   it('plan has no deps', () => {
@@ -27,31 +25,46 @@ describe('buildAutopilotDag', () => {
     assert.deepEqual(dag[0].deps, []);
   });
 
-  it('case depends on plan', () => {
+  it('review depends on plan', () => {
     const dag = buildAutopilotDag(testCtx());
     assert.deepEqual(dag[1].deps, ['plan']);
   });
 
+  it('deploy depends on review', () => {
+    const dag = buildAutopilotDag(testCtx());
+    assert.deepEqual(dag[2].deps, ['review']);
+  });
+
+  it('test depends on deploy', () => {
+    const dag = buildAutopilotDag(testCtx());
+    assert.deepEqual(dag[3].deps, ['deploy']);
+  });
+
   it('deploy is MUTATING', () => {
     const dag = buildAutopilotDag(testCtx());
-    assert.equal(dag[4].mutation, 'MUTATING');
+    assert.equal(dag[2].mutation, 'MUTATING');
   });
 
-  it('plan is READ_ONLY', () => {
+  it('plan, review, and test are READ_ONLY', () => {
     const dag = buildAutopilotDag(testCtx());
     assert.equal(dag[0].mutation, 'READ_ONLY');
+    assert.equal(dag[1].mutation, 'READ_ONLY');
+    assert.equal(dag[3].mutation, 'READ_ONLY');
   });
 
-  it('build is AUTHORING', () => {
+  it('has no AUTHORING stage (artifact-authoring agents were removed)', () => {
     const dag = buildAutopilotDag(testCtx());
-    assert.equal(dag[2].mutation, 'AUTHORING');
+    assert.equal(dag.every((t) => t.mutation !== 'AUTHORING'), true);
   });
 
   it('formatDag produces a readable string', () => {
     const dag = buildAutopilotDag(testCtx());
     const str = formatDag(dag);
-    assert.ok(str.includes('DAG (6 tasks):'));
+    assert.ok(str.includes('DAG (4 tasks):'));
     assert.ok(str.includes('plan'));
+    assert.ok(str.includes('review'));
+    assert.ok(str.includes('deploy'));
+    assert.ok(str.includes('test'));
   });
 
   it('formatBatches produces readable batches', () => {
@@ -75,8 +88,6 @@ describe('getDependents', () => {
   it('returns all transitive dependents of plan', () => {
     const dag = buildAutopilotDag(testCtx());
     const deps = getDependents(dag, 'plan');
-    assert.ok(deps.has('case'));
-    assert.ok(deps.has('build'));
     assert.ok(deps.has('review'));
     assert.ok(deps.has('deploy'));
     assert.ok(deps.has('test'));
@@ -87,7 +98,7 @@ describe('getDependents', () => {
     const deps = getDependents(dag, 'deploy');
     assert.ok(deps.has('test'));
     assert.ok(!deps.has('plan'));
-    assert.ok(!deps.has('case'));
+    assert.ok(!deps.has('review'));
   });
 });
 
@@ -138,20 +149,21 @@ describe('mutation lock', () => {
 
 describe('runParallel (fail-fast cancellation)', () => {
   beforeEach(() => {
+    // Script every uip call the 4-stage pipeline makes, all succeeding.
+    // quality-gate needs a Successful deployment to pass.
     setupScript([
       { match: 'or folders list', exitCode: 0, stdout: '[]' },
-      { match: 'maestro case init', exitCode: 0, stdout: 'created' },
-      { match: 'maestro case validate', exitCode: 0, stdout: 'valid' },
-      { match: 'maestro case pack', exitCode: 0, stdout: 'packed' },
-      { match: 'solution init', exitCode: 0, stdout: 'created' },
-      { match: 'solution restore', exitCode: 0, stdout: 'restored' },
-      { match: 'solution pack', exitCode: 0, stdout: 'packed' },
-      { match: 'rpa validate', exitCode: 0, stdout: '{}' },
-      { match: 'rpa build', exitCode: 0, stdout: '{}' },
-      { match: 'solution upload', exitCode: 0, stdout: 'uploaded' },
+      { match: 'rpa validate', exitCode: 0, stdout: '{"Errors":0,"Warnings":0}' },
+      { match: 'rpa build', exitCode: 0, stdout: '{"Errors":0,"Warnings":0}' },
+      { match: 'maestro case validate', exitCode: 0, stdout: '{"Errors":0}' },
+      { match: 'or processes list', exitCode: 0, stdout: '{"Data":[]}' },
       { match: 'solution publish', exitCode: 0, stdout: 'published' },
       { match: 'solution deploy run', exitCode: 0, stdout: 'deployed' },
-      { match: 'solution deploy activate', exitCode: 0, stdout: 'activated' },
+      {
+        match: 'solution deploy list',
+        exitCode: 0,
+        stdout: JSON.stringify({ Data: [{ Name: 'dep-1', OperationStatus: 'Successful' }] }),
+      },
     ]);
     resetLocks();
   });
@@ -159,7 +171,7 @@ describe('runParallel (fail-fast cancellation)', () => {
   it('runs all tasks to completion when all succeed', async () => {
     const dag = buildAutopilotDag(testCtx());
     const results = await runParallel(dag, testCtx(), 4);
-    assert.equal(results.length, 6);
+    assert.equal(results.length, 4);
     const allOk = results.every((r) => r.status === 'ok');
     assert.ok(allOk, `Expected all OK, got: ${results.map((r) => `${r.taskId}=${r.status}`).join(', ')}`);
   });
@@ -177,9 +189,9 @@ describe('runParallel (fail-fast cancellation)', () => {
     const plan = results.find((r) => r.taskId === 'plan');
     assert.equal(plan?.status, 'failed');
 
-    // case, build, review, deploy, test should all be cancelled.
+    // review, deploy, test should all be cancelled.
     const cancelled = results.filter((r) => r.status === 'cancelled');
-    assert.ok(cancelled.length >= 5, `Expected ≥5 cancelled, got ${cancelled.length}`);
+    assert.ok(cancelled.length >= 3, `Expected ≥3 cancelled, got ${cancelled.length}`);
   });
 });
 

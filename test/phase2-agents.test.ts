@@ -1,5 +1,5 @@
 /**
- * Tests for the new Phase 2 agents: diagnostician and reviewer.
+ * Tests for the Phase 2 agents: diagnostician and reviewer.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,7 +32,7 @@ describe('diagnostician', () => {
   });
 });
 
-describe('reviewer', () => {
+describe('reviewer — severity parsing', () => {
   it('dry-run returns plan', async () => {
     setupScript([]);
     const res = await reviewer.run(testCtx({ dryRun: true }));
@@ -40,7 +40,7 @@ describe('reviewer', () => {
     assert.equal(res.agent, 'reviewer');
   });
 
-  it('happy path: all validations pass', async () => {
+  it('happy path: all validations pass (Info)', async () => {
     setupScript([
       { match: 'rpa validate', exitCode: 0, stdout: '{"Errors":0,"Warnings":0}' },
       { match: 'rpa build', exitCode: 0, stdout: '{"Errors":0,"Warnings":0}' },
@@ -49,16 +49,78 @@ describe('reviewer', () => {
     const res = await reviewer.run(testCtx());
     assert.equal(res.success, true);
     assert.equal(res.exitCodes?.length, 3);
+    // No Critical findings in the output.
+    assert.ok(!res.output.includes('[Critical]'));
   });
 
-  it('stops on rpa validate failure (does not reach build/case)', async () => {
+  it('stops on rpa validate non-zero exit (Critical, does not reach build/case)', async () => {
     setupScript([
       { match: 'rpa validate', exitCode: 1, stderr: 'validation error' },
-      { match: 'rpa build', exitCode: 0, stdout: 'ok' },
-      { match: 'maestro case validate', exitCode: 0, stdout: 'ok' },
+      { match: 'rpa build', exitCode: 0, stdout: '{}' },
+      { match: 'maestro case validate', exitCode: 0, stdout: '{}' },
     ]);
     const res = await reviewer.run(testCtx());
     assert.equal(res.success, false);
     assert.equal(res.exitCodes?.length, 1); // only rpa validate ran
+    assert.ok(res.output.includes('[Critical]'));
+  });
+
+  it('Result: Failure with zero exit is Critical (chain still runs all)', async () => {
+    setupScript([
+      { match: 'rpa validate', exitCode: 0, stdout: '{"Result":"Failure","Errors":0}' },
+      { match: 'rpa build', exitCode: 0, stdout: '{"Errors":0}' },
+      { match: 'maestro case validate', exitCode: 0, stdout: '{"Errors":0}' },
+    ]);
+    const res = await reviewer.run(testCtx());
+    assert.equal(res.success, false);
+    assert.equal(res.exitCodes?.length, 3); // all ran (zero exits)
+    assert.ok(res.output.includes('[Critical]'));
+    assert.ok(res.output.includes('Result=Failure'));
+  });
+
+  it('Result: ValidationError is Critical', async () => {
+    setupScript([
+      { match: 'rpa validate', exitCode: 0, stdout: '{"Errors":0}' },
+      { match: 'rpa build', exitCode: 0, stdout: '{"Errors":0}' },
+      { match: 'maestro case validate', exitCode: 0, stdout: '{"Result":"ValidationError"}' },
+    ]);
+    const res = await reviewer.run(testCtx());
+    assert.equal(res.success, false);
+    assert.ok(res.output.includes('[Critical]'));
+    assert.ok(res.output.includes('ValidationError'));
+  });
+
+  it('non-zero Error count is Critical even with zero exit', async () => {
+    setupScript([
+      { match: 'rpa validate', exitCode: 0, stdout: '{"Errors":3,"Warnings":1}' },
+      { match: 'rpa build', exitCode: 0, stdout: '{"Errors":0}' },
+      { match: 'maestro case validate', exitCode: 0, stdout: '{"Errors":0}' },
+    ]);
+    const res = await reviewer.run(testCtx());
+    assert.equal(res.success, false);
+    assert.ok(res.output.includes('[Critical]'));
+    assert.ok(res.output.includes('error(s)'));
+  });
+
+  it('warnings without errors do not gate (Warning, not Critical)', async () => {
+    setupScript([
+      { match: 'rpa validate', exitCode: 0, stdout: '{"Errors":0,"Warnings":2}' },
+      { match: 'rpa build', exitCode: 0, stdout: '{"Errors":0}' },
+      { match: 'maestro case validate', exitCode: 0, stdout: '{"Errors":0}' },
+    ]);
+    const res = await reviewer.run(testCtx());
+    assert.equal(res.success, true);
+    assert.ok(res.output.includes('[Warning]'));
+    assert.ok(!res.output.includes('[Critical]'));
+  });
+
+  it('non-JSON stdout with zero exit is treated as a pass', async () => {
+    setupScript([
+      { match: 'rpa validate', exitCode: 0, stdout: 'all good' },
+      { match: 'rpa build', exitCode: 0, stdout: 'ok' },
+      { match: 'maestro case validate', exitCode: 0, stdout: 'valid' },
+    ]);
+    const res = await reviewer.run(testCtx());
+    assert.equal(res.success, true);
   });
 });

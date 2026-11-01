@@ -15,6 +15,9 @@ export function buildAutopilotDag(ctx: AgentContext): TaskNode[] {
   const folder = ctx.folder ?? 'Shared';
 
   // Stage definitions: id, name, agent, skill, commands, mutation, deps
+  // The artifact-authoring stages (case, build) were removed in Phase 3 —
+  // the user (or upstream skills) authors the .uipx; we only review, deploy,
+  // and verify. Pipeline: plan -> review -> deploy -> test (4 stages).
   const stages: Array<{
     id: string;
     name: string;
@@ -28,28 +31,10 @@ export function buildAutopilotDag(ctx: AgentContext): TaskNode[] {
       id: 'plan',
       name: 'Plan pipeline',
       agent: 'orchestrator',
-      skill: 'uipath-planner',
-      commands: ['uip or folders list', 'uip maestro case sdd parse'],
+      skill: 'uipath-platform',
+      commands: ['uip or folders list'],
       mutation: 'READ_ONLY',
       deps: [],
-    },
-    {
-      id: 'case',
-      name: 'Design case plan',
-      agent: 'case-architect',
-      skill: 'uipath-maestro-case',
-      commands: ['uip maestro case init', 'uip maestro case validate', 'uip maestro case pack'],
-      mutation: 'AUTHORING',
-      deps: ['plan'],
-    },
-    {
-      id: 'build',
-      name: 'Build solution',
-      agent: 'solution-builder',
-      skill: 'uipath-solution',
-      commands: ['uip solution init', 'uip solution restore', 'uip solution pack'],
-      mutation: 'AUTHORING',
-      deps: ['case'],
     },
     {
       id: 'review',
@@ -58,23 +43,23 @@ export function buildAutopilotDag(ctx: AgentContext): TaskNode[] {
       skill: 'uipath-review',
       commands: ['uip rpa validate', 'uip rpa build', 'uip maestro case validate'],
       mutation: 'READ_ONLY',
-      deps: ['build'],
+      deps: ['plan'],
     },
     {
       id: 'deploy',
       name: 'Deploy solution',
       agent: 'deployment-manager',
       skill: 'uipath-solution',
-      commands: ['uip solution upload', 'uip solution publish', 'uip solution deploy run', 'uip solution deploy activate'],
+      commands: ['uip solution publish', 'uip solution deploy run'],
       mutation: 'MUTATING',
       deps: ['review'],
     },
     {
       id: 'test',
-      name: 'Post-deploy tests',
+      name: 'Post-deploy verification',
       agent: 'quality-gate',
-      skill: 'uipath-test',
-      commands: ['uip maestro case validate'],
+      skill: 'uipath-solution',
+      commands: ['uip solution deploy list'],
       mutation: 'READ_ONLY',
       deps: ['deploy'],
     },

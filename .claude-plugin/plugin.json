@@ -6,8 +6,6 @@
   "license": "MIT",
   "agents": [
     "./agents/orchestrator.md",
-    "./agents/solution-builder.md",
-    "./agents/case-architect.md",
     "./agents/deployment-manager.md",
     "./agents/quality-gate.md"
   ],

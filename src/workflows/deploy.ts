@@ -1,16 +1,17 @@
 /**
- * deploy workflow — upload -> publish -> deploy -> activate.
- * Chains deployment-manager, then a quality-gate verification pass.
+ * deploy workflow — publish -> deploy, then post-deploy verification.
+ * Chains deployment-manager (publish + deploy run) then quality-gate
+ * (verify a Successful deployment landed in the folder).
  */
 import type { AgentContext, AgentResult, Workflow } from '../types';
 import { getAgent } from '../agents';
 
 export const deployWorkflow: Workflow = {
   name: 'deploy',
-  description: 'Upload, publish, deploy, and activate a UiPath solution, then verify.',
+  description: 'Publish + deploy a UiPath solution, then verify the deployment.',
   steps: [
-    { name: 'deploy', agent: 'deployment-manager', description: 'Upload + publish + deploy + activate' },
-    { name: 'verify', agent: 'quality-gate', description: 'Post-deploy validation + tests' },
+    { name: 'deploy', agent: 'deployment-manager', description: 'Publish + deploy the .uipx' },
+    { name: 'verify', agent: 'quality-gate', description: 'Post-deploy verification' },
   ],
   async run(ctx: AgentContext): Promise<AgentResult[]> {
     const results: AgentResult[] = [];

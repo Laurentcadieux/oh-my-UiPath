@@ -127,7 +127,7 @@ export type AgentRunFn = (ctx: AgentContext) => Promise<AgentResult>;
 
 /** An agent owns a slice of the UiPath platform and a set of `uip` commands. */
 export interface Agent {
-  /** Stable identifier, e.g. `solution-builder`. */
+  /** Stable identifier, e.g. `orchestrator`. */
   readonly name: string;
   /** Human-readable role. */
   readonly role: string;

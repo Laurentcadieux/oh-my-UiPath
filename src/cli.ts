@@ -21,7 +21,6 @@ import { rollback, printRollback } from './engine/rollback';
 
 /** Build an AgentContext from CLI options. */
 function buildCtx(opts: Record<string, unknown>): AgentContext {
-  const useUpstreamPlanner = opts.upstreamPlanner !== false;
   const skillStatusMap = loadSkillStatusMap();
   return {
     cwd: typeof opts.cwd === 'string' ? path.resolve(opts.cwd) : process.cwd(),
@@ -33,9 +32,6 @@ function buildCtx(opts: Record<string, unknown>): AgentContext {
     verbose: Boolean(opts.verbose),
     allowPreview: Boolean(opts.allowPreview),
     skillStatusMap,
-    labels: {
-      ...(useUpstreamPlanner ? {} : { 'use-upstream-planner': 'false' }),
-    },
   };
 }
 
@@ -76,7 +72,6 @@ function withRunOptions(cmd: Command): Command {
     .option('--cwd <path>', 'working directory for uip', process.cwd())
     .option('--dry-run', 'print the uip calls that would run without executing')
     .option('--verbose', 'print full uip stdout/stderr')
-    .option('--no-upstream-planner', "don't use upstream uipath-planner; use omu-h's own planning")
     .option('--allow-preview', 'allow Preview/In-development skills against prod environments')
     .option('--parallel', 'run the pipeline in parallel mode (engine)')
     .option('--concurrency <n>', 'max parallel tasks (default 4)', '4');
