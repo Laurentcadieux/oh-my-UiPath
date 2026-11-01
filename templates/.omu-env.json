@@ -1,0 +1,26 @@
+{
+  "dev": {
+    "tenant": "Dev",
+    "folder": "Shared",
+    "requireValidation": true,
+    "requireReview": true,
+    "minTestPassRate": 0.8,
+    "requireConfirmation": false
+  },
+  "test": {
+    "tenant": "Test",
+    "folder": "Shared",
+    "requireValidation": true,
+    "requireReview": true,
+    "minTestPassRate": 0.9,
+    "requireConfirmation": false
+  },
+  "prod": {
+    "tenant": "Prod",
+    "folder": "Shared",
+    "requireValidation": true,
+    "requireReview": true,
+    "minTestPassRate": 1.0,
+    "requireConfirmation": true
+  }
+}

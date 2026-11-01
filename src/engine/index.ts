@@ -18,6 +18,7 @@ import { runParallel, formatResults } from './worker-pool';
 import type { TaskResult } from './types';
 import { fetchTenantSnapshot } from './tenant-snapshot';
 import { loadSkillStatusMap, isSkillAllowed } from '../skill-status';
+import { attemptRecovery } from './recovery';
 import chalk from 'chalk';
 
 export type EngineMode = 'sequential' | 'parallel';
@@ -82,23 +83,39 @@ export async function runPipeline(
     for (const task of sorted) {
       const agent = getAgent(task.agent);
       if (!agent) continue;
-      const res = await agent.run(ctx);
+      let res = await agent.run(ctx);
       results.push(res);
+
+      // Self-healing: if the step fails, attempt recovery.
       if (!res.success) {
-        // Run diagnostician on failure.
-        const diag = getAgent('diagnostician');
-        if (diag) {
-          const diagRes = await diag.run({
-            ...ctx,
-            labels: {
-              ...(ctx.labels ?? {}),
-              ['failed-step']: task.id,
-              ['failed-output']: res.output.slice(0, 4096),
-            },
-          });
-          results.push(diagRes);
+        const recovery = await attemptRecovery(ctx, task.id, res.output, 0);
+
+        // If recovery applied an AUTHORING fix, retry the step.
+        if (recovery.applied && recovery.retried) {
+          res = await agent.run(ctx);
+          results[results.length - 1] = res;
+          if (res.success) {
+            // Recovery succeeded — continue the pipeline.
+            continue;
+          }
         }
-        break;
+
+        // Recovery failed or TENANT fix needed — run diagnostician + stop.
+        if (!res.success) {
+          const diag = getAgent('diagnostician');
+          if (diag && !ctx.dryRun) {
+            const diagRes = await diag.run({
+              ...ctx,
+              labels: {
+                ...(ctx.labels ?? {}),
+                ['failed-step']: task.id,
+                ['failed-output']: res.output.slice(0, 4096),
+              },
+            });
+            results.push(diagRes);
+          }
+          break;
+        }
       }
     }
     return { results };

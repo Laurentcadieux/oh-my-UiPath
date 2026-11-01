@@ -45,6 +45,67 @@ export interface ReviewFinding {
   readonly rule?: string;
 }
 
+/** Result of a recovery attempt. */
+export interface RecoveryResult {
+  readonly applied: boolean;
+  readonly retried: boolean;
+  readonly output: string;
+  readonly requiresConfirmation: boolean;
+  readonly fixType: 'AUTHORING' | 'TENANT' | 'NONE';
+  readonly retryCount: number;
+}
+
+/** Target environment configuration. */
+export interface EnvTarget {
+  readonly tenant: string;
+  readonly folder: string;
+  readonly requireValidation: boolean;
+  readonly requireReview: boolean;
+  readonly minTestPassRate: number;
+  readonly requireConfirmation: boolean;
+}
+
+/** Environment configuration (dev → test → prod). */
+export interface EnvironmentConfig {
+  readonly dev: EnvTarget;
+  readonly test: EnvTarget;
+  readonly prod: EnvTarget;
+}
+
+/** A single process version entry in a pre-deploy snapshot. */
+export interface ProcessVersion {
+  readonly key: string;
+  readonly name: string;
+  readonly version: string;
+}
+
+/** Pre-deploy version snapshot. */
+export interface VersionSnapshot {
+  readonly timestamp: number;
+  readonly env: string;
+  readonly tenant: string;
+  readonly folder: string;
+  readonly processes: readonly ProcessVersion[];
+}
+
+/** Result of a promotion attempt. */
+export interface PromotionResult {
+  readonly success: boolean;
+  readonly from: string;
+  readonly to: string;
+  readonly gatesPassed: boolean;
+  readonly gates: readonly string[];
+  readonly output: string;
+}
+
+/** Result of a rollback attempt. */
+export interface RollbackResult {
+  readonly success: boolean;
+  readonly env: string;
+  readonly rolledBack: readonly string[];
+  readonly output: string;
+}
+
 /** Structured result of a single agent run. */
 export interface AgentResult {
   /** Name of the agent that produced this result. */

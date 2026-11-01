@@ -14,6 +14,7 @@
  */
 import type { Agent, AgentContext, AgentResult } from '../types';
 import { runUipChain, makeChainResult, planResult } from '../config';
+import { recordPreDeployVersions } from '../engine/rollback';
 
 export const deploymentManager: Agent = {
   name: 'deployment-manager',
@@ -35,12 +36,16 @@ export const deploymentManager: Agent = {
 
     if (ctx.dryRun) {
       return planResult('deployment-manager', [
+        `record pre-deploy versions (or processes list)`,
         `solution upload ${solutionPath}`,
         `solution publish ${packagePath}`,
         `solution deploy run --parent-folder-path ${parentFolder}`,
         `solution deploy activate ${deploymentName}`,
       ], [], start);
     }
+
+    // Record pre-deploy versions for rollback.
+    recordPreDeployVersions(ctx, ctx.tenant ?? 'default');
 
     const chain = runUipChain(ctx, [
       { args: ['solution', 'upload', solutionPath], label: 'solution upload' },
