@@ -38,13 +38,13 @@ omu-h rea ./legacy-script.py
 | Directory | Multi-project Solution | ✅ |
 
 </details>
-- **Blocks dangerous mutations on Prod** — a Claude Code `PreToolUse` hook (`hooks/safety-guard.mjs`) intercepts every Bash command containing a `uip` invocation, classifies it as READ_ONLY / AUTHORING / MUTATING, and **blocks MUTATING commands on Prod tenants** (exit 2). Fail-closed: unknown tenant also blocks. Configurable via `OMU_PROD_TENANT_PATTERN` and `.omu.json`. Bypass with `OMU_ALLOW_PROD_MUTATIONS=1`. *(tests: `test/safety-guard.test.ts` — 30+ cases covering Prod, Production, prod-eu, empty tenant, chained commands, npx, absolute paths, bypass)*
-- **Gates on skill maturity** — the hook also blocks MUTATING commands driven by Preview or In-development skills on Prod, even with the prod bypass, unless `OMU_ALLOW_PREVIEW=1`. Unknown skill status is treated as blocked, not allowed. *(tests: `test/safety-guard.test.ts` — 5 skill-maturity cases; `test/skill-status.test.ts` — 10 cases)*
-- **Validates before deploy** — the reviewer agent runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, parses the JSON output for real severity (Critical / Warning / Info), and **gates the pipeline on Critical findings**. *(tests: `test/phase2-agents.test.ts` — reviewer suite with 6 cases including failure paths)*
-- **Diagnoses failures** — the diagnostician agent uses the failure output (`ctx.labels['failed-output']`) to run targeted `uip or jobs logs/get` for job IDs found in the error, and `uip solution deploy status` for deploy failures. *(tests: `test/phase2-agents.test.ts` — diagnostician suite)*
-- **Recommends recovery** — the recovery engine classifies failures (AUTHORING vs TENANT) and prints a recommended `uip` command. **Never auto-applies** — the user reviews and runs the fix manually. *(tests: `test/phase4.test.ts` — 7 recovery cases)*
-- **Rolls back** — before each deploy, `recordPreDeployVersions` snapshots all process keys + versions to `.omu-versions.json`. `omu-h rollback <env>` restores them via `uip or processes rollback <key>`. *(tests: `test/phase4.test.ts` — 4 rollback cases)*
-- **Promotes across environments** — `omu-h promote <from> <to>` checks gates (validation passed, no Critical findings, test pass rate ≥ threshold) and requires `--confirm` for prod. *(tests: `test/phase4.test.ts` — 6 promotion cases)*
+- **Blocks mutations on Prod** — a Claude Code hook intercepts `uip` commands and blocks `publish`/`deploy`/`activate`/`rollback` on Prod tenants. Fail-closed on unknown tenant. Bypass with `OMU_ALLOW_PROD_MUTATIONS=1`.
+- **Gates on skill maturity** — blocks Preview and In-development skills on Prod, even with the bypass, unless `OMU_ALLOW_PREVIEW=1`.
+- **Validates before deploy** — runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, parses severity, gates on Critical findings.
+- **Diagnoses failures** — extracts job IDs from error output and runs targeted `uip or jobs logs` and `uip solution deploy status`.
+- **Recommends recovery** — classifies failures and prints a recommended `uip` command. Never auto-applies — the user runs the fix manually.
+- **Rolls back** — snapshots process versions before each deploy. `omu-h rollback <env>` restores them via `uip or processes rollback`.
+- **Promotes across environments** — `omu-h promote dev test` / `omu-h promote test prod` with gates (validation passed, no Critical findings, test pass rate). Prod requires `--confirm`.
 
 ### Relationship to upstream
 
