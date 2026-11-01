@@ -150,7 +150,7 @@ omu-h --help
 In a Claude Code session, run these **one at a time** (not on the same line):
 
 ```
-/plugin marketplace add Laurentcadieux/oh-my-UiPath-h
+/plugin marketplace add Laurentcadieux/oh-my-UiPath
 ```
 
 Wait for "marketplace added", then:
