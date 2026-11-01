@@ -8,7 +8,7 @@ import {
   searchSkills as _searchSkills,
 } from './skill-loader';
 
-export { loadSkills, CANONICAL_SKILLS } from './skill-loader';
+export { loadSkills, canonicalSkillNames } from './skill-loader';
 
 /** Lazy-loaded, cached list of all installed UiPath skills. */
 let _cache: Skill[] | undefined;

@@ -7,20 +7,26 @@ import { solutionBuilder } from './solution-builder';
 import { caseArchitect } from './case-architect';
 import { deploymentManager } from './deployment-manager';
 import { qualityGate } from './quality-gate';
+import { reviewer } from './reviewer';
+import { diagnostician } from './diagnostician';
 
 export { orchestrator } from './orchestrator';
 export { solutionBuilder } from './solution-builder';
 export { caseArchitect } from './case-architect';
 export { deploymentManager } from './deployment-manager';
 export { qualityGate } from './quality-gate';
+export { reviewer } from './reviewer';
+export { diagnostician } from './diagnostician';
 
 /** Ordered list of all agents (orchestrator first). */
 export const agentList: readonly Agent[] = [
   orchestrator,
   solutionBuilder,
   caseArchitect,
-  deploymentManager,
+  reviewer,
   qualityGate,
+  deploymentManager,
+  diagnostician,
 ];
 
 /** Name -> agent lookup. */

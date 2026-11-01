@@ -24,6 +24,25 @@ export interface AgentContext {
   readonly verbose: boolean;
   /** Free-form labels the orchestrator attaches to the run. */
   readonly labels?: Record<string, string>;
+  /** Task list derived from the SDD by the upstream uipath-planner. */
+  readonly taskList?: string;
+  /** When true, allow Preview/In-development skills against prod environments. */
+  readonly allowPreview?: boolean;
+  /** Skill status map loaded from upstream assets/skill-status.json. */
+  readonly skillStatusMap?: SkillStatusMap;
+}
+
+/** Status of a skill from the upstream catalog. */
+export type SkillStatus = 'stable' | 'preview' | 'in-development' | 'unknown';
+
+/** Map of skill name → status, loaded from upstream. */
+export type SkillStatusMap = Record<string, SkillStatus>;
+
+/** Structured review finding from the reviewer agent. */
+export interface ReviewFinding {
+  readonly severity: 'Critical' | 'Warning' | 'Info';
+  readonly message: string;
+  readonly rule?: string;
 }
 
 /** Structured result of a single agent run. */

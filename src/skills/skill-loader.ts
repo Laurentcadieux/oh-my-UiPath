@@ -60,33 +60,7 @@ export function searchSkills(needle: string, skills?: readonly Skill[]): Skill[]
   );
 }
 
-/** The canonical 27 skill names this system is built around. */
-export const CANONICAL_SKILLS: readonly string[] = [
-  'uipath-admin',
-  'uipath-agents',
-  'uipath-aops',
-  'uipath-api-workflow',
-  'uipath-automation-discovery',
-  'uipath-automationhub',
-  'uipath-coded-apps',
-  'uipath-connector-builder',
-  'uipath-feedback',
-  'uipath-functions',
-  'uipath-governance',
-  'uipath-human-in-the-loop',
-  'uipath-insights',
-  'uipath-ixp',
-  'uipath-maestro-bpmn',
-  'uipath-maestro-case',
-  'uipath-maestro-flow',
-  'uipath-mcp-servers',
-  'uipath-planner',
-  'uipath-platform',
-  'uipath-process-mining',
-  'uipath-review',
-  'uipath-rpa',
-  'uipath-skill-catalog',
-  'uipath-solution',
-  'uipath-tasks',
-  'uipath-test',
-];
+/** The canonical skill names — loaded dynamically from the catalog, never hardcoded. */
+export function canonicalSkillNames(): readonly string[] {
+  return loadSkills().map((s) => s.name);
+}

@@ -14,9 +14,12 @@ import { agentList, getAgent } from './agents';
 import { workflowList, getWorkflow } from './workflows';
 import { listSkills, getSkill, searchSkills, skillCount } from './skills';
 import { loadConfig } from './config';
+import { loadSkillStatusMap, buildSyncReport, loadVersionManifest } from './skill-status';
 
 /** Build an AgentContext from CLI options. */
 function buildCtx(opts: Record<string, unknown>): AgentContext {
+  const useUpstreamPlanner = opts.upstreamPlanner !== false;
+  const skillStatusMap = loadSkillStatusMap();
   return {
     cwd: typeof opts.cwd === 'string' ? path.resolve(opts.cwd) : process.cwd(),
     sddPath: typeof opts.sdd === 'string' ? path.resolve(opts.sdd) : undefined,
@@ -25,6 +28,11 @@ function buildCtx(opts: Record<string, unknown>): AgentContext {
     folder: typeof opts.folder === 'string' ? opts.folder : undefined,
     dryRun: Boolean(opts.dryRun),
     verbose: Boolean(opts.verbose),
+    allowPreview: Boolean(opts.allowPreview),
+    skillStatusMap,
+    labels: {
+      ...(useUpstreamPlanner ? {} : { 'use-upstream-planner': 'false' }),
+    },
   };
 }
 
@@ -64,7 +72,9 @@ function withRunOptions(cmd: Command): Command {
     .option('--folder <name>', 'target Orchestrator folder')
     .option('--cwd <path>', 'working directory for uip', process.cwd())
     .option('--dry-run', 'print the uip calls that would run without executing')
-    .option('--verbose', 'print full uip stdout/stderr');
+    .option('--verbose', 'print full uip stdout/stderr')
+    .option('--no-upstream-planner', "don't use upstream uipath-planner; use omu-h's own planning")
+    .option('--allow-preview', 'allow Preview/In-development skills against prod environments');
 }
 
 /** Run a shell command and return stdout, or empty string on failure. */
@@ -222,6 +232,49 @@ export function createCli(): Command {
 
   withRunOptions(program.command('run <workflow>').description('Run any workflow by name'))
     .action(async (workflow: string, opts: Record<string, unknown>) => runWorkflow(workflow, opts));
+
+  // --- sync ---
+  program
+    .command('sync')
+    .description('Sync skill status from upstream @uipath/skills and report changes')
+    .action(() => {
+      const map = loadSkillStatusMap();
+      const count = skillCount();
+      const report = buildSyncReport(count, map);
+      const manifest = loadVersionManifest();
+
+      console.log(chalk.cyan('\noh-my-UiPath Skill Sync\n'));
+      console.log(`Upstream version: ${chalk.bold(report.upstreamVersion ?? 'unknown')}`);
+      console.log(`Target CLI: ${chalk.gray(manifest?.targetCli ?? 'unknown')}`);
+      console.log(`Installed skills: ${chalk.bold(String(report.totalSkills))}`);
+      console.log();
+      console.log(`  ${chalk.green('Stable')}:         ${report.stable}`);
+      console.log(`  ${chalk.yellow('Preview')}:         ${report.preview}`);
+      console.log(`  ${chalk.red('In-development')}: ${report.inDevelopment}`);
+      console.log(`  ${chalk.gray('Unknown')}:        ${report.unknown}`);
+      console.log();
+
+      // List non-stable skills with warnings
+      const skills = listSkills();
+      const nonStable = skills.filter((s) => {
+        const status = map[s.name];
+        return status === 'preview' || status === 'in-development';
+      });
+      if (nonStable.length > 0) {
+        console.log(chalk.yellow('Non-stable skills in use:'));
+        for (const s of nonStable) {
+          const status = map[s.name];
+          const color = status === 'preview' ? chalk.yellow : chalk.red;
+          console.log(`  ${color(status.padEnd(15))} ${s.name}`);
+        }
+        console.log();
+        console.log(chalk.gray('Pipeline will warn on non-stable skills.'));
+        console.log(chalk.gray('Use --allow-preview to allow against prod.'));
+      } else {
+        console.log(chalk.green('All installed skills are Stable.'));
+      }
+      console.log();
+    });
 
   return program;
 }

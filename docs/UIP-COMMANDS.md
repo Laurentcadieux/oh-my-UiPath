@@ -8,16 +8,20 @@
 | Command | Agent | Verified | Source |
 |---------|-------|----------|--------|
 | `uip or folders list --output json` | orchestrator | ✅ Yes | `uip or --help` |
+| `uip maestro case sdd parse <file> --output json` | orchestrator | ✅ Yes | `uip maestro case sdd parse --help` |
+| `uip maestro case sdd resolve <file> --output json` | orchestrator | ✅ Yes | `uip maestro case sdd resolve --help` |
 | `uip solution init <solutionName>` | solution-builder | ✅ Yes | `uip solution init --help` |
 | `uip solution restore <solutionPath>` | solution-builder | ✅ Yes | `uip solution restore --help` |
 | `uip solution pack <solutionPath> <output-path>` | solution-builder | ✅ Yes | `uip solution pack --help` |
 | `uip maestro case init <name>` | case-architect | ✅ Yes | `uip maestro case init --help` |
-| `uip maestro case validate <file>` | case-architect, quality-gate | ✅ Yes | `uip maestro case validate --help` |
+| `uip maestro case validate <file>` | case-architect, quality-gate, reviewer | ✅ Yes | `uip maestro case validate --help` |
 | `uip maestro case pack <project-path> <output-path>` | case-architect | ✅ Yes | `uip maestro case pack --help` |
 | `uip solution upload <solutionPath>` | deployment-manager | ✅ Yes | `uip solution upload --help` |
 | `uip solution publish <packagePath>` | deployment-manager | ✅ Yes | `uip solution publish --help` |
 | `uip solution deploy run --parent-folder-path <path>` | deployment-manager | ✅ Yes | `uip solution deploy run --help` |
 | `uip solution deploy activate <deployment-name>` | deployment-manager | ✅ Yes | `uip solution deploy activate --help` |
+| `uip rpa validate <file> --output json` | reviewer | ⚠️ Unverified | Requires @uipath/rpa-tool (not installed, EACCES) |
+| `uip rpa build <projectPath> --output json` | reviewer | ⚠️ Unverified | Requires @uipath/rpa-tool (not installed, EACCES) |
 
 ## Unverified / removed commands
 
