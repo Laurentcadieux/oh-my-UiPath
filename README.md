@@ -35,21 +35,27 @@ npm install -g @uipath/cli
 # 2. Install the 27 UiPath skills
 uip skills install
 
-# 3. Install oh-my-UiPath
+# 3. Install oh-my-UiPath (published on npm)
+npm install -g oh-my-uipath
+
+# 4. Authenticate to UiPath Cloud
+uip login
+
+# 5. Use it
+omu --help
+omu agents
+omu skills
+omu workflows
+omu autopilot --sdd ./sdd.md --dry-run
+```
+
+### From source (alternative)
+
+```bash
+git clone https://github.com/Laurentcadieux/oh-my-UiPath.git
 cd oh-my-UiPath
 npm install
 npm run build
-
-# 4. Use it
-./node_modules/.bin/omu --help
-./node_modules/.bin/omu agents
-./node_modules/.bin/omu skills
-./node_modules/.bin/omu autopilot --sdd ./sdd.md --dry-run
-```
-
-Or link it globally:
-
-```bash
 npm link
 omu --help
 ```
@@ -93,7 +99,7 @@ oh-my-UiPath/
 
 ## Status
 
-Local scaffold, works on `main`. No GitHub push yet.
+Published on [npm](https://www.npmjs.com/package/oh-my-uipath). Source on [GitHub](https://github.com/Laurentcadieux/oh-my-UiPath).
 
 ## License
 
