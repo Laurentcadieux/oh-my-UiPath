@@ -1,145 +1,141 @@
-# PLAN.md — Phase 4: Recovery, gates and rollback
+# PLAN.md — Phase 5: Safety guard (PreToolUse hook)
 
-## What exists now
+## What the upstream does (verified Nov 1 2026)
 
-- 7 agents: orchestrator, solution-builder, case-architect, reviewer, quality-gate, deployment-manager, diagnostician
-- Autopilot: plan → case → build → review → deploy → test (sequential + parallel engine)
-- Diagnostician runs on failure but only logs — no self-healing or retry
-- No environment promotion (dev → test → prod)
-- No rollback — no version tracking before deploy
-- No gates beyond stop-on-failure
+The upstream `@uipath/skills` package ships `hooks/hooks.json` with:
+- `SessionStart`: runs `suggest-permissions.mjs` (nudge to install `uip` allowlist) + `set-session-env.mjs` (export session env to `uip`) + `uip track --hook`
+- `PostToolUse`: `uip track --hook` on every tool use
+- `SessionEnd` / `Stop` / `StopFailure`: `uip track --hook`
 
-## Verified uip commands for Phase 4 (uip v1.202.1)
+It does NOT have a PreToolUse hook — that's the gap omu-h fills.
 
-| Command | Purpose |
-|---------|---------|
-| `uip or processes list --all-folders --output json` | Get process keys + current versions |
-| `uip or processes version-history <key> --output json` | List version history per process |
-| `uip or processes rollback <key> --folder-path <p> --output json` | Rollback to previous version |
-| `uip or processes update-version <keys> --package-version <v> --output json` | Update to specific version |
-| `uip solution deploy status <id> --output json` | Check deployment status |
-| `uip solution deploy list --folder-path <p> --output json` | List deployments |
-| `uip solution deploy upgrade <key> --version <v> --output json` | Upgrade in place |
-| `uip solution deploy uninstall <name> --output json` | Uninstall a deployment |
-| `uip login tenant set <name>` | Switch active tenant |
-| `uip login tenant list --output json` | List available tenants |
+## Claude Code PreToolUse hook format (verified from docs)
 
-## Phase 4 deliverables
-
-### 4.1 — Self-healing (diagnostician + retry)
-
-**Modify: `src/agents/diagnostician.ts`**
-
-When a pipeline step fails, the diagnostician:
-1. Loads `uipath-troubleshoot/SKILL.md` and follows its investigation procedure
-2. Runs diagnostic `uip` commands (read-only: `deploy status`, `jobs logs`, `processes list`)
-3. Classifies the error:
-   - **AUTHORING fix** (local files): can be auto-applied — e.g. re-run `solution pack`, fix a binding
-   - **TENANT fix** (changes tenant state): requires user confirmation — e.g. re-publish, re-deploy, update-version
-4. For AUTHORING fixes: apply automatically, retry the failed step (max 2 retries)
-5. For TENANT fixes: present the recommended `uip` command, wait for user confirmation via `AskUserQuestion`-style prompt (in CLI, print the command and ask for `--confirm`)
-
-**New file: `src/engine/recovery.ts`**
-- `attemptRecovery(ctx, failure): Promise<RecoveryResult>` — runs the diagnostician, classifies the fix, applies if AUTHORING, asks if TENANT
-- `RecoveryResult`: `{ applied: boolean, retried: boolean, output: string, requiresConfirmation: boolean }`
-- Max 2 retries per failed step
-
-**Modify: `src/engine/index.ts`**
-- After a task fails, call `attemptRecovery` before cancelling dependents
-- If recovery succeeds and retries < 2, re-run the failed task
-- If recovery fails or requires unconfirmed TENANT changes, cancel dependents
-
-### 4.2 — Environments (dev → test → prod)
-
-**New file: `src/engine/environments.ts`**
-- `EnvironmentConfig`: `{ dev: EnvTarget, test: EnvTarget, prod: EnvTarget }`
-- `EnvTarget`: `{ tenant: string, folder: string, requireValidation: boolean, requireReview: boolean, minTestPassRate: number, requireConfirmation: boolean }`
-- `loadEnvironments(): EnvironmentConfig` — reads from `.omu-env.json` in cwd or env vars
-- `promote(ctx, from: string, to: string): Promise<PromotionResult>` — validates gates then switches tenant
-
-**Gates (checked before promotion):**
-1. `validate` passed (no failures in the validate/review stage)
-2. No blocking `uipath-review` findings (Critical severity)
-3. Test pass rate ≥ `minTestPassRate` (default 80%)
-4. If target is `prod`: require explicit user confirmation
-
-**New CLI command: `omu-h promote <from> <to>`**
-- `omu-h promote dev test` — promotes from dev to test
-- `omu-h promote test prod` — promotes from test to prod (requires `--confirm`)
-- `--dry-run`: prints what would happen (gates check, tenant switch, deploy)
-
-**New file: `.omu-env.json` template** (in `templates/`):
 ```json
 {
-  "dev": { "tenant": "Dev", "folder": "Shared", "requireValidation": true, "requireReview": true, "minTestPassRate": 0.8, "requireConfirmation": false },
-  "test": { "tenant": "Test", "folder": "Shared", "requireValidation": true, "requireReview": true, "minTestPassRate": 0.9, "requireConfirmation": false },
-  "prod": { "tenant": "Prod", "folder": "Shared", "requireValidation": true, "requireReview": true, "minTestPassRate": 1.0, "requireConfirmation": true }
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/safety-guard.mjs"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
-### 4.3 — Rollback
+- Hook receives JSON on stdin: `{ tool_name, tool_input: { command } }`
+- Exit code 0 = allow, exit code 2 = block (denied)
+- stderr output is shown to the user as the deny reason
 
-**New file: `src/engine/rollback.ts`**
-- `recordPreDeployVersions(ctx): Promise<VersionSnapshot>` — before each deploy, fetch `uip or processes list --all-folders --output json` and record each process's active version
-- `rollback(ctx, env: string): Promise<RollbackResult>` — restores the recorded versions via `uip or processes rollback <key> --folder-path <p>`
+## Phase 5 deliverables
 
-**Version snapshot:**
-- Stored in `.omu-versions.json` in cwd
-- One entry per deploy: `{ timestamp, env, processes: [{ key, name, version }] }`
-- `rollback` reads the last entry for the given env and runs `uip or processes rollback` for each process
+### 5.1 — hooks/hooks.json
 
-**New CLI command: `omu-h rollback <env>`**
-- `omu-h rollback prod` — restores the pre-deploy versions for prod
-- `--dry-run`: prints what would be rolled back (process names + versions)
-- Reads `.omu-versions.json` for the last snapshot
+**New file: `hooks/hooks.json`**
 
-**Modify: `src/agents/deployment-manager.ts`**
-- Before `deploy run`, call `recordPreDeployVersions(ctx)` and store the snapshot
-- This is a READ_ONLY operation (just fetching process list)
+A PreToolUse hook that matches `Bash` commands and runs `safety-guard.mjs`:
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/safety-guard.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This file gets merged with the upstream's hooks.json by Claude Code's plugin system. We add the PreToolUse hook; upstream's SessionStart/PostToolUse/etc. remain.
+
+### 5.2 — hooks/safety-guard.mjs
+
+**New file: `hooks/safety-guard.mjs`**
+
+A Node.js ESM script that:
+1. Reads the PreToolUse JSON payload from stdin
+2. Extracts `tool_input.command` (the Bash command Claude is about to run)
+3. Checks if the command contains a `uip` invocation
+4. If it does, classifies the uip command:
+   - **MUTATING**: `solution publish`, `solution deploy run`, `solution deploy activate`, `solution deploy upgrade`, `solution deploy uninstall`, `solution upload`, `or processes rollback`, `or processes update-version`, `or assets create`, `or assets delete`, `or queues create`, `or queues delete`, `or buckets create`, `or buckets delete`, `solution delete`
+   - **AUTHORING**: `solution init`, `solution restore`, `solution pack`, `solution projects add`, `solution projects remove`, `solution resources refresh`, `maestro case init`, `maestro case pack`
+   - **READ_ONLY**: everything else (list, get, status, validate, search)
+5. If MUTATING and the current tenant is `Prod` (from `uip login status` or env `UIPATH_CURRENT_TENANT`):
+   - Block with exit code 2 and a message explaining the command was blocked for prod safety
+   - The user can set `OMU_ALLOW_PROD_MUTATIONS=1` to bypass
+6. If MUTATING and not prod: allow but print a warning to stderr
+7. If not a uip command: allow (exit 0)
+
+### 5.3 — plugin.json update
+
+Update `.claude-plugin/plugin.json` to register the hooks directory:
+```json
+{
+  ...existing fields...,
+  "hooks": "./hooks/hooks.json"
+}
+```
+
+### 5.4 — Tests
+
+**New file: `test/safety-guard.test.ts`**
+
+Tests for the safety guard logic:
+- Allows non-uip Bash commands (exit 0)
+- Allows READ_ONLY uip commands (exit 0)
+- Allows AUTHORING uip commands (exit 0)
+- Blocks MUTATING uip commands on Prod tenant (exit 2)
+- Allows MUTATING uip commands on non-prod tenants (exit 0, warning)
+- Allows MUTATING uip commands on Prod with `OMU_ALLOW_PROD_MUTATIONS=1` (exit 0)
+
+### 5.5 — Update .claude-plugin/plugin.json
+
+Add `"hooks": "./hooks/hooks.json"` to the plugin manifest so Claude Code loads the hook.
 
 ## Files to create
 
 | File | Purpose |
 |------|---------|
-| `src/engine/recovery.ts` | Self-healing: diagnose → classify fix → apply (AUTHORING) or ask (TENANT) → retry (max 2) |
-| `src/engine/environments.ts` | Environment config (dev/test/prod), promotion gates, `loadEnvironments` |
-| `src/engine/rollback.ts` | Pre-deploy version snapshot + `rollback(env)` via `uip or processes rollback` |
-| `test/recovery.test.ts` | Tests for recovery + retry logic |
-| `test/environments.test.ts` | Tests for promotion gates |
-| `test/rollback.test.ts` | Tests for version snapshot + rollback |
-| `templates/.omu-env.json` | Environment config template |
+| `hooks/hooks.json` | PreToolUse hook manifest for Claude Code |
+| `hooks/safety-guard.mjs` | Node.js ESM script — blocks MUTATING uip commands on Prod |
+| `test/safety-guard.test.ts` | Tests for the safety guard logic |
 
 ## Files to modify
 
 | File | Change |
 |------|--------|
-| `src/agents/diagnostician.ts` | Classify fixes (AUTHORING vs TENANT), apply AUTHORING fixes, recommend TENANT fixes |
-| `src/engine/index.ts` | Call `attemptRecovery` on failure, retry if applied, cancel if not |
-| `src/agents/deployment-manager.ts` | Record pre-deploy version snapshot |
-| `src/cli.ts` | Add `promote` and `rollback` commands |
-| `src/types.ts` | Add `EnvironmentConfig`, `VersionSnapshot`, `RecoveryResult` types |
-| `package.json` | Bump to 1.6.0 |
-| `docs/UIP-COMMANDS.md` | Add rollback + promotion commands |
-| `README.md` | Document `promote`, `rollback`, self-healing |
+| `.claude-plugin/plugin.json` | Add `"hooks": "./hooks/hooks.json"` |
+| `package.json` | Bump to 1.7.0; add `hooks/` to files array |
+| `docs/UIP-COMMANDS.md` | Document safety guard |
+| `README.md` | Document the safety hook + `OMU_ALLOW_PROD_MUTATIONS` bypass |
 
 ## Acceptance
 
-- [ ] Diagnostician classifies failures as AUTHORING vs TENANT
-- [ ] AUTHORING fixes auto-applied, failed step retried (max 2)
-- [ ] TENANT fixes require user confirmation (printed command + --confirm)
-- [ ] `omu-h promote dev test` checks gates (validate passed, no Critical review, test pass rate)
-- [ ] `omu-h promote test prod` requires `--confirm`
-- [ ] Pre-deploy version snapshot recorded in `.omu-versions.json`
-- [ ] `omu-h rollback prod` restores pre-deploy versions via `uip or processes rollback`
-- [ ] `--dry-run` on promote + rollback prints what would happen
-- [ ] `npm test` passes (55 existing + new recovery/env/rollback tests)
+- [ ] `hooks/hooks.json` registers a PreToolUse hook matching `Bash`
+- [ ] `hooks/safety-guard.mjs` blocks MUTATING uip commands on Prod (exit 2)
+- [ ] Non-uip commands pass through (exit 0)
+- [ ] READ_ONLY and AUTHORING uip commands pass through (exit 0)
+- [ ] `OMU_ALLOW_PROD_MUTATIONS=1` bypasses the block
+- [ ] `npm test` passes (79 existing + new safety guard tests)
 - [ ] `claude plugin validate .` passes
-- [ ] Every `uip` command verified against `uip --help`
+- [ ] `package.json` files array includes `hooks/`
 
 ## Constraints
 
-- Never auto-apply a fix that changes tenant state without user confirmation
-- Max 2 retries per failed step
-- Prod always requires explicit confirmation
-- All `uip` calls go through the real binary
-- Do NOT modify or fork upstream skills
+- The hook must not break non-uip Bash commands (exit 0 fast)
+- The hook must not modify the upstream hooks.json — it's a separate file
+- Timeout: 5 seconds (hook must be fast — no network calls)
+- Must work on Linux and macOS (Node.js ESM)
