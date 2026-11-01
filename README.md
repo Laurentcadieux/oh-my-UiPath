@@ -78,11 +78,14 @@ npm install -g @uipath/cli
 uip --version     # should print 1.197+
 ```
 
-### Step 3: Install the installed UiPath skills
+### Step 3: Install the UiPath skills
 
 > **Note:** `uip skills install` must be run inside a coding agent session (e.g. Claude Code). It detects the agent and installs skills into its skill directory.
 
 ```bash
+# Install Claude Code
+npm install -g @anthropic-ai/claude-code
+
 # Start Claude Code
 claude
 
