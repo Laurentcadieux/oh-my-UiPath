@@ -1,10 +1,10 @@
 {
   "name": "oh-my-uipath-h",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "description": "Multi-agent orchestration for the UiPath platform — chains uip CLI skills into a reliable SDD-to-deploy pipeline",
   "author": { "name": "Laurent Cadieux", "email": "laurent@cadieux.dev" },
   "license": "MIT",
-  "icon": "./icon.png",
+  "icon": "./.claude-plugin/icon.png",
   "agents": [
     "./agents/orchestrator.md",
     "./agents/deployment-manager.md",

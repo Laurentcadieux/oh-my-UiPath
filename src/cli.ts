@@ -90,7 +90,7 @@ export function createCli(): Command {
   program
     .name('omu-h')
     .description('oh-my-UiPath — multi-agent orchestration for the UiPath platform')
-    .version('2.0.8');
+    .version('2.0.9');
 
   // --- setup ---
   program
