@@ -19,30 +19,30 @@ The headline workflow. `plan -> build -> validate -> deploy -> test`.
 **Fail-fast:** the pipeline stops on the first agent whose `uip` calls exit non-zero.
 
 ```bash
-omu autopilot --sdd ./sdd.md --dry-run
-omu autopilot --sdd ./sdd.md --folder MyFolder
+omu-h autopilot --sdd ./sdd.md --dry-run
+omu-h autopilot --sdd ./sdd.md --folder MyFolder
 ```
 
 ### build — pack + validate
 Two steps: `solution-builder` (pack) then `quality-gate` (validate).
 
 ```bash
-omu build --dry-run
-omu build --verbose
+omu-h build --dry-run
+omu-h build --verbose
 ```
 
 ### deploy — upload + publish + deploy + activate
 Two steps: `deployment-manager` (upload/publish/deploy/activate) then a `quality-gate` verification pass.
 
 ```bash
-omu deploy --solution ./dist --folder MyFolder
+omu-h deploy --solution ./dist --folder MyFolder
 ```
 
 ## Running workflows
 
-- `omu autopilot` / `omu build` / `omu deploy` — convenience commands.
-- `omu run <workflow>` — run any registered workflow by name.
-- `omu workflows` — list all registered workflows and their steps.
+- `omu-h autopilot` / `omu-h build` / `omu-h deploy` — convenience commands.
+- `omu-h run <workflow>` — run any registered workflow by name.
+- `omu-h workflows` — list all registered workflows and their steps.
 
 ## Adding a workflow
 

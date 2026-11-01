@@ -1,0 +1,17 @@
+{
+  "name": "oh-my-uipath-h",
+  "version": "1.0.1",
+  "description": "Multi-agent orchestration for UiPath platform",
+  "agents": [
+    "./agents/orchestrator.md",
+    "./agents/solution-builder.md",
+    "./agents/case-architect.md",
+    "./agents/deployment-manager.md",
+    "./agents/quality-gate.md"
+  ],
+  "commands": [
+    "./commands/autopilot.md",
+    "./commands/build.md",
+    "./commands/deploy.md"
+  ]
+}

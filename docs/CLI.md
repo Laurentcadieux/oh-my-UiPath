@@ -6,37 +6,37 @@ Built with `commander.js`.
 ## Global
 
 ```
-omu --help            # top-level help
-omu --version         # 0.1.0
+omu-h --help            # top-level help
+omu-h --version         # 0.1.0
 ```
 
 ## Introspection
 
 | Command | Description |
 | --- | --- |
-| `omu agents` | List agents, their roles, skills, and `uip` commands. |
-| `omu workflows` | List workflows and their steps. |
-| `omu skills` | List all installed UiPath skills. |
-| `omu skills --search <needle>` | Free-text filter on skill name/description. |
-| `omu skill <name>` | Show one skill by exact name. |
-| `omu config` | Show resolved config (uip bin, skills root, defaults). |
+| `omu-h agents` | List agents, their roles, skills, and `uip` commands. |
+| `omu-h workflows` | List workflows and their steps. |
+| `omu-h skills` | List all installed UiPath skills. |
+| `omu-h skills --search <needle>` | Free-text filter on skill name/description. |
+| `omu-h skill <name>` | Show one skill by exact name. |
+| `omu-h config` | Show resolved config (uip bin, skills root, defaults). |
 
 ## Running an agent
 
 ```
-omu agent <name> [options]
+omu-h agent <name> [options]
 ```
 
-Runs a single agent by name (e.g. `omu agent solution-builder --dry-run`).
+Runs a single agent by name (e.g. `omu-h agent solution-builder --dry-run`).
 
 ## Running a workflow
 
 | Command | Workflow | Steps |
 | --- | --- | --- |
-| `omu autopilot` | autopilot | plan -> case -> build -> validate -> deploy -> test |
-| `omu build` | build | pack -> validate |
-| `omu deploy` | deploy | deploy -> verify |
-| `omu run <workflow>` | any | run any registered workflow by name |
+| `omu-h autopilot` | autopilot | plan -> case -> build -> validate -> deploy -> test |
+| `omu-h build` | build | pack -> validate |
+| `omu-h deploy` | deploy | deploy -> verify |
+| `omu-h run <workflow>` | any | run any registered workflow by name |
 
 ## Shared run options (agent + workflow commands)
 
@@ -63,20 +63,20 @@ Runs a single agent by name (e.g. `omu agent solution-builder --dry-run`).
 
 ```bash
 # Plan only — no uip calls execute
-omu autopilot --sdd ./sdd.md --dry-run
+omu-h autopilot --sdd ./sdd.md --dry-run
 
 # Full pipeline against a folder
-omu autopilot --sdd ./sdd.md --folder MyFolder --verbose
+omu-h autopilot --sdd ./sdd.md --folder MyFolder --verbose
 
 # Just pack + validate
-omu build --verbose
+omu-h build --verbose
 
 # Deploy a packed solution
-omu deploy --solution ./dist --folder MyFolder
+omu-h deploy --solution ./dist --folder MyFolder
 
 # Inspect the catalog
-omu skills --search case
-omu skill uipath-maestro-case
+omu-h skills --search case
+omu-h skill uipath-maestro-case
 ```
 
 ## Exit codes

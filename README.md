@@ -42,11 +42,11 @@ npm install -g oh-my-uipath-h
 uip login
 
 # 5. Use it
-omu --help
-omu agents
-omu skills
-omu workflows
-omu autopilot --sdd ./sdd.md --dry-run
+omu-h --help
+omu-h agents
+omu-h skills
+omu-h workflows
+omu-h autopilot --sdd ./sdd.md --dry-run
 ```
 
 ### From source (alternative)
@@ -57,7 +57,7 @@ cd oh-my-UiPath
 npm install
 npm run build
 npm link
-omu --help
+omu-h --help
 ```
 
 ## Features
@@ -89,12 +89,55 @@ oh-my-UiPath/
 │   ├── agents/          # orchestrator, solution-builder, case-architect, deployment-manager, quality-gate
 │   ├── workflows/       # autopilot, build, deploy
 │   ├── skills/          # skill-loader wrapping the 27 UiPath skills
-│   ├── cli.ts           # omu CLI entry point (commander.js)
+│   ├── cli.ts           # omu-h CLI entry point (commander.js)
 │   ├── config.ts        # config + uip runner
 │   ├── types.ts         # shared TypeScript types
 │   └── index.ts         # library entry point
 ├── docs/                # AGENTS, WORKFLOWS, SKILLS, CLI, SDD-GUIDE
 └── templates/           # sdd-template.md, case-template.json, solution-template.uipx
+```
+
+## Claude Code Plugin
+
+`oh-my-UiPath` is also a **Claude Code plugin** (like
+[oh-my-claudecode](https://github.com/yeachan-heo/oh-my-claudecode)). The
+`.claude-plugin/` directory registers the 5 agents and 3 slash commands so you
+can drive the SDD-to-deploy pipeline from inside a Claude Code chat session —
+the agents load the 27 UiPath skills from `~/.agents/skills/` and shell out to
+the real `uip` CLI, just like the `omu` command.
+
+### Install as a plugin
+
+In a Claude Code session:
+
+```bash
+/plugin marketplace add https://github.com/Laurentcadieux/oh-my-UiPath
+/plugin install oh-my-uipath-h
+```
+
+### Use it
+
+After install, the slash commands are available in any Claude Code session:
+
+- `/autopilot` — runs the full SDD-to-deploy pipeline
+  (`plan -> case -> build -> validate -> deploy -> test`), equivalent to
+  `omu-h autopilot`.
+- `/build` — packs and validates the solution, equivalent to `omu-h build`.
+- `/deploy` — uploads, publishes, deploys, and activates, equivalent to
+  `omu-h deploy`.
+
+The agents (`orchestrator`, `solution-builder`, `case-architect`,
+`deployment-manager`, `quality-gate`) are also available for direct
+delegation. Every action goes through `runUip()` and the real `uip` binary —
+nothing is fabricated.
+
+### Plugin layout
+
+```
+.claude-plugin/
+├── plugin.json          # manifest (name, version, agents, commands)
+├── agents/              # 5 agent definitions
+└── commands/            # 3 slash commands (/autopilot, /build, /deploy)
 ```
 
 ## Status

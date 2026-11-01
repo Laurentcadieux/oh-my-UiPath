@@ -7,8 +7,18 @@
   "type": "commonjs",
   "main": "./dist/index.js",
   "bin": {
-    "omu": "./dist/cli.js"
+    "omu-h": "./dist/cli.js"
   },
+  "files": [
+    ".claude-plugin",
+    "dist",
+    "docs",
+    "templates",
+    "AGENTS.md",
+    "README.md",
+    "memory.md",
+    "RaceTime.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",

@@ -35,7 +35,7 @@ Start from `templates/sdd-template.md`. An SDD captures:
 ## 2. Plan (dry-run)
 
 ```bash
-omu autopilot --sdd ./sdd.md --dry-run
+omu-h autopilot --sdd ./sdd.md --dry-run
 ```
 
 This prints every `uip` call the pipeline *would* make, with no execution.
@@ -47,7 +47,7 @@ looks right.
 The case-architect derives a `caseplan.json` from the SDD:
 
 ```bash
-omu agent case-architect --sdd ./sdd.md --verbose
+omu-h agent case-architect --sdd ./sdd.md --verbose
 ```
 
 Use `templates/case-template.json` as a starting point for hand-editing.
@@ -55,7 +55,7 @@ Use `templates/case-template.json` as a starting point for hand-editing.
 ## 4. Build
 
 ```bash
-omu build --verbose
+omu-h build --verbose
 ```
 
 solution-builder scaffolds and packs the `.uipx`; quality-gate validates.
@@ -63,7 +63,7 @@ solution-builder scaffolds and packs the `.uipx`; quality-gate validates.
 ## 5. Deploy
 
 ```bash
-omu deploy --solution ./dist --folder MyFolder
+omu-h deploy --solution ./dist --folder MyFolder
 ```
 
 deployment-manager uploads, publishes, deploys, and activates; quality-gate
@@ -72,7 +72,7 @@ runs a post-deploy verification pass.
 ## 6. Full autopilot
 
 ```bash
-omu autopilot --sdd ./sdd.md --folder MyFolder --verbose
+omu-h autopilot --sdd ./sdd.md --folder MyFolder --verbose
 ```
 
 Runs all six stages end to end, stopping on the first failure.

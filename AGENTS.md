@@ -52,3 +52,19 @@ All commands support `--dry-run` and `--verbose`.
 |------|---------|
 | `RaceTime.md` | Timeline of all steps with UTC timestamps |
 | `memory.md` | Agent context for context recovery after compression |
+
+## Claude Code Plugin
+
+oh-my-UiPath is also a Claude Code plugin. Install it in any Claude Code session:
+
+```
+/plugin marketplace add https://github.com/Laurentcadieux/oh-my-UiPath
+/plugin install oh-my-uipath-h
+```
+
+Then use slash commands in chat:
+- `/autopilot --sdd my-sdd.md` — full SDD-to-deploy pipeline
+- `/build --solution MySolution` — pack + validate
+- `/deploy --package MySolution` — upload + publish + deploy + activate
+
+The 5 agents (orchestrator, solution-builder, case-architect, deployment-manager, quality-gate) are registered as Claude Code agents and activate automatically based on the slash command used.
