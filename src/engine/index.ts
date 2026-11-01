@@ -14,6 +14,7 @@ import {
 } from './task-graph';
 import { loadSkillStatusMap, isSkillAllowed } from '../skill-status';
 import { attemptRecovery } from './recovery';
+import { trackTokens, resetTokenTracker, recordTokens } from '../token-tracker';
 import chalk from 'chalk';
 
 export interface EngineOptions {
@@ -57,6 +58,7 @@ export async function runPipeline(
   }
 
   // Run stages in topological order (sequential only).
+  resetTokenTracker();
   const sorted = topologicalSort(dag);
   const results: AgentResult[] = [];
   for (const task of sorted) {
@@ -64,6 +66,7 @@ export async function runPipeline(
     if (!agent) continue;
     let res = await agent.run(ctx);
     results.push(res);
+    trackTokens(recordTokens(task.agent, task.id, res.output, res.durationMs));
 
     // Self-healing: if the step fails, attempt recovery (recommend-only).
     if (!res.success) {
