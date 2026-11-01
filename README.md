@@ -120,7 +120,27 @@ oh-my-UiPath Setup
 Commands: omu-h agents | omu-h skills | omu-h workflows | omu-h autopilot --sdd ./sdd.md --dry-run
 ```
 
-### Step 7: Use it
+### Step 7: Install as a Claude Code plugin
+
+In a Claude Code session, run these **one at a time**:
+
+```
+/plugin marketplace add Laurentcadieux/oh-my-UiPath
+```
+
+Wait for "marketplace added", then:
+
+```
+/plugin install oh-my-uipath-h@oh-my-uipath
+```
+
+After install, the slash commands are available in any Claude Code session:
+
+- `/autopilot` — runs the full pipeline (`plan → review → deploy → test`)
+- `/build` — validates existing artifacts (reviewer)
+- `/deploy` — publishes and deploys the solution, then verifies
+
+### Step 8: Use it from the CLI
 
 ```bash
 omu-h --help
@@ -143,31 +163,7 @@ omu-h --help
 
 ## Claude Code Plugin
 
-`oh-my-UiPath` is also a **Claude Code plugin** (like [oh-my-claudecode](https://github.com/yeachan-heo/oh-my-claudecode)). The `.claude-plugin/` directory registers the 5 agents and 3 slash commands so you can drive the SDD-to-deploy pipeline from inside a Claude Code chat session.
-
-### Install as a plugin
-
-In a Claude Code session, run these **one at a time** (not on the same line):
-
-```
-/plugin marketplace add Laurentcadieux/oh-my-UiPath
-```
-
-Wait for "marketplace added", then:
-
-```
-/plugin install oh-my-uipath-h@oh-my-uipath
-```
-
-### Use it
-
-After install, the slash commands are available in any Claude Code session:
-
-- `/autopilot` — runs the full pipeline (`plan → review → deploy → test`)
-- `/build` — validates existing artifacts (reviewer)
-- `/deploy` — publishes and deploys the solution, then verifies
-
-The 5 agents (`orchestrator`, `reviewer`, `quality-gate`, `deployment-manager`, `diagnostician`) are also available for direct delegation.
+After install (Step 7), the 6 agents (`orchestrator`, `reviewer`, `quality-gate`, `deployment-manager`, `diagnostician`, `rea-uipath`) and 3 slash commands (`/autopilot`, `/build`, `/deploy`) are available for direct delegation in any Claude Code session.
 
 ## Features
 
