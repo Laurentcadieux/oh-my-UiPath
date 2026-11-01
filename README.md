@@ -2,55 +2,27 @@
 
 > ⚠️ **Disclaimer — Research Only.** Not affiliated with UiPath. This is an independent helper; UiPath names and feeds are referenced only for compatibility. No warranty — you use this software at your own risk. The authors are not liable for damage, data loss, or compliance issues. You are responsible for license terms of each package and for organizational policies.
 
-## Why omu-h? — Value over the upstream UiPath skills
+## Why omu-h?
 
-The upstream [UiPath skills](https://github.com/UiPath/skills) give you per-product knowledge: each skill knows its own surface (`uipath-planner` for PDD/SDD → tasks, `uipath-solution` for `.uipx` lifecycle, `uipath-review` for validation, `uipath-troubleshoot` for diagnosis). But they don't chain — there is no upstream mechanism that:
+The upstream [UiPath skills](https://github.com/UiPath/skills) are great — each one knows its surface (`uipath-planner`, `uipath-solution`, `uipath-review`, `uipath-troubleshoot`, etc.). omu-h wraps them with guardrails so you can go from idea to deployed UiPath automation safely, in one command.
 
-- **Reverse-engineers anything into a UiPath solution** — the REA-UiPath agent (inspired by [REA](https://github.com/morluto/rea)) takes **ANY** existing system — a Python script, shell script, Excel macro, BPMN from another platform, a manual process description, an API integration — inspects it, documents it as a PDD, maps it to the right UiPath products (RPA, Maestro, Functions, Agents, API Workflows), scaffolds a `.uipx` solution, **and produces a Coded App (React/TypeScript) as the end-user presentation layer** — all from `omu-h rea <inputPath>`. Upstream has no equivalent: `uipath-planner` starts from a PDD you already wrote; REA-UiPath writes the PDD for you from any source. *(tests: `test/rea-uipath.test.ts` — 7 cases covering dry-run, happy path, failure, directory, non-existent path, BPMN mapping)*
+**What omu-h adds:**
 
-<details>
-<summary><b>How it works — REA-UiPath</b></summary>
-
-**3 steps, one command:**
-
-```bash
-omu-h rea ./legacy-script.py
-```
-
-1. **Inspect** — reads your input (script, BPMN, macro, process description, directory) and classifies it
-2. **Document & map** — writes a PDD (`pdd.md`) and maps it to the right UiPath product (RPA, Maestro Case/Flow/BPMN, Functions, Agents, API Workflows)
-3. **Scaffold** — creates the `.uipx` solution, `caseplan.json` (if Maestro Case), and a **Coded App** (React/TypeScript) as the end-user frontend
-
-**What you get:**
-- `pdd.md` — Process Design Document
-- `.uipx` solution (via `uip solution init`)
-- `caseplan.json` (if mapped to Maestro Case)
-- `{name}-app/` — Coded App with `vite.config.ts` (`base: './'`) + `src/uipath.ts` (`@uipath/uipath-typescript` SDK)
-
-**Input → UiPath product:**
-
-| Input | Automation | + Coded App |
-|-------|-----------|-------------|
-| Python / Shell / PowerShell | RPA, Functions | ✅ |
-| BPMN | Maestro BPMN | ✅ |
-| Text / YAML (process description) | Maestro Case, Flow | ✅ |
-| JSON (API / agent) | API Workflows, Agents | ✅ |
-| Directory | Multi-project Solution | ✅ |
-
-</details>
-- **Blocks mutations on Prod** — a Claude Code hook intercepts `uip` commands and blocks `publish`/`deploy`/`activate`/`rollback` on Prod tenants. Fail-closed on unknown tenant. Bypass with `OMU_ALLOW_PROD_MUTATIONS=1`.
-- **Gates on skill maturity** — blocks Preview and In-development skills on Prod, even with the bypass, unless `OMU_ALLOW_PREVIEW=1`.
-- **Validates before deploy** — runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, parses severity, gates on Critical findings.
-- **Diagnoses failures** — extracts job IDs from error output and runs targeted `uip or jobs logs` and `uip solution deploy status`.
-- **Recommends recovery** — classifies failures and prints a recommended `uip` command. Never auto-applies — the user runs the fix manually.
-- **Rolls back** — snapshots process versions before each deploy. `omu-h rollback <env>` restores them via `uip or processes rollback`.
-- **Promotes across environments** — `omu-h promote dev test` / `omu-h promote test prod` with gates (validation passed, no Critical findings, test pass rate). Prod requires `--confirm`.
+1. **REA-UiPath** — `omu-h rea ./anything` — reverse-engineers any existing system (script, BPMN, macro, process doc) into a UiPath solution with a Coded App frontend. Upstream needs a PDD you already wrote; REA-UiPath writes it for you.
+2. **Safety hook** — blocks `publish`/`deploy`/`activate` on Prod tenants. Fail-closed on unknown tenant. Bypass with `OMU_ALLOW_PROD_MUTATIONS=1`.
+3. **Skill maturity gating** — blocks Preview and In-development skills on Prod unless `OMU_ALLOW_PREVIEW=1`.
+4. **Review before deploy** — runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, gates on Critical findings.
+5. **Failure diagnosis** — extracts job IDs from errors, runs `uip or jobs logs` + `uip solution deploy status`.
+6. **Recovery recommendations** — classifies failures, prints a recommended `uip` command. Never auto-applies.
+7. **Rollback** — snapshots process versions before each deploy. `omu-h rollback <env>` restores them.
+8. **Environment promotion** — `omu-h promote dev test` / `omu-h promote test prod` with gates. Prod requires `--confirm`.
+9. **Token ROI** — `omu-h tokens` / `omu-h roi` — tracks LLM token usage per agent and per stage, with cost estimate.
 
 ### Relationship to upstream
 
-**What `uipath-planner` already does:** PDD → SDD authoring, task derivation, specialist routing. The upstream planner is the source of truth for solution design — omu-h does not duplicate it.
+**`uipath-planner` already does:** PDD → SDD authoring, task derivation, specialist routing. omu-h does not duplicate it.
 
-**What omu-h adds:** deterministic guardrails around the upstream skills — **REA-UiPath** (reverse-engineer anything → UiPath with a Coded App frontend), a safety hook that blocks mutations on Prod, skill maturity gating, a review gate before deploy, failure diagnosis, recovery recommendations, rollback, and environment promotion. The pipeline (`plan → review → deploy → test`) operates on existing artifacts produced by upstream skills, not on artifacts it creates itself.
+**omu-h adds:** guardrails — REA-UiPath, safety hook, maturity gating, review, diagnosis, recovery, rollback, promotion, and token ROI. The pipeline (`plan → review → deploy → test`) operates on existing artifacts, not on artifacts it creates itself.
 
 > Multi-agent orchestration for the **UiPath platform**, powered by the `uip` CLI and the installed UiPath skills. Run `omu-h setup` to see how many skills are installed.
 
