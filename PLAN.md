@@ -1,103 +1,148 @@
-# PLAN.md — Phase 2: Complement upstream instead of duplicating it
+# PLAN.md — Phase 3: Speed (multi-agent)
 
-## What upstream provides (verified Nov 1 2026)
+## What exists now
 
-- `@uipath/skills` v1.204.1 on npm — contains `version-manifest.json`, `assets/skill-status.json`, `assets/cli-versions.json`, `assets/uip-catalog-snapshot.json`
-- 30 installed skills at `~/.agents/skills/` (not 27 — `CANONICAL_SKILLS` was wrong)
-- `assets/skill-status.json` maps each skill to: **Stable** (14), **Preview** (12), **In-development** (4)
-- `uipath-planner` — PDD→SDD + task derivation (Stable)
-- `uipath-troubleshoot` — diagnostic investigation (Preview)
-- `uipath-review` — read-only review with `uip rpa validate`/`build` (Preview)
+- `runUip()` uses `spawnSync` — synchronous, blocking. No parallelism.
+- `runUipChain()` — sequential stop-on-failure within a single agent.
+- 7 agents: orchestrator, solution-builder, case-architect, reviewer, quality-gate, deployment-manager, diagnostician.
+- Autopilot: plan → case → build → review → deploy → test (sequential, stop on failure).
 
-## Phase 2 deliverables
+## Phase 3 deliverables
 
-### 2.1 — Plan stage: use upstream uipath-planner
+### 3.1 — Task graph (DAG)
 
-**Current state:** orchestrator agent runs `uip or folders list` — no real planning.
+**New file: `src/engine/task-graph.ts`**
 
-**Change:** 
-- Add `--use-upstream-planner` flag to `autopilot` (default: on). When on, the orchestrator delegates to `uipath-planner` by loading its SKILL.md and following its Lane A (PDD-driven) path: read the SDD, derive tasks, emit the task list.
-- The orchestrator calls `uip maestro case sdd parse <sdd>` (verified: exists in `uip maestro case sdd parse --help`) to parse the SDD, then `uip maestro case sdd resolve` to resolve references.
-- Keep omu-h's own planning as a fallback behind `--no-upstream-planner`.
-- The orchestrator stores the task list in `AgentContext` (new field `taskList?: string`) so downstream agents know what to build.
+Convert the autopilot pipeline into a dependency graph. Each `TaskNode`:
 
-### 2.2 — Skill catalog: sync from upstream + status awareness
+```typescript
+interface TaskNode {
+  id: string;
+  name: string;
+  agent: string;
+  skill: string;
+  uipCommands: string[];
+  mutation: 'READ_ONLY' | 'AUTHORING' | 'MUTATING';
+  folder?: string;
+  tenant?: string;
+  deps: string[];  // task IDs this depends on
+}
+```
 
-**Current state:** `CANONICAL_SKILLS` hardcodes 27 names. No status. Missing `uipath-troubleshoot`.
+Classification:
+- **READ_ONLY**: `list`, `status`, `get`, `search`, `validate` — no state change
+- **AUTHORING**: `init`, `project add`, `restore`, `pack` — writes local files, no tenant change
+- **MUTATING**: `publish`, `deploy run`, `deploy activate`, `upload` — changes tenant state
 
-**Change:**
+The DAG builder maps the 6-stage autopilot sequence into tasks:
+- `plan` (READ_ONLY) — depends on nothing
+- `case` (AUTHORING) — depends on `plan`
+- `build` (AUTHORING) — depends on `case`
+- `review` (READ_ONLY) — depends on `build`
+- `deploy` (MUTATING) — depends on `review`
+- `test` (READ_ONLY) — depends on `deploy`
 
-**New file: `src/skill-status.ts`**
-- `loadSkillStatus(): SkillStatusMap` — reads `assets/skill-status.json` from the installed skills root (or downloads it from `@uipath/skills` npm package if not found locally).
-- `getSkillStatus(name: string): 'stable' | 'preview' | 'in-development' | 'unknown'`
-- `loadVersionManifest(): { skillsVersion: string; targetCli: string }` — reads `version-manifest.json`.
+Independent READ_ONLY and AUTHORING tasks can run in parallel. MUTATING tasks serialize per folder.
 
-**New CLI command: `omu-h sync`**
-- Downloads `@uipath/skills` latest version info from npm (`npm view @uipath/skills version`).
-- Compares against locally installed skills catalog.
-- Reports: new skills (in upstream but not installed), removed skills (installed but not in upstream), changed skills (status changed since last sync).
-- Stores a `.omu-sync.json` file with the last-synced version + status snapshot.
+### 3.2 — Async process execution + worker pool
 
-**Remove `CANONICAL_SKILLS`** — replace all references with `loadSkills()` from the catalog.
+**New file: `src/engine/runner.ts`**
 
-**Pipeline status gating:**
-- Before running a step, check the skill's status.
-- If `preview` or `in-development` and `ctx.tenant === 'prod'` (or `Prod`): refuse unless `--allow-preview` is passed.
-- If `preview` or `in-development` and not prod: warn but continue.
-- Add `allowPreview: boolean` to `AgentContext`.
+Replace `spawnSync` with async `spawn` + `Promise`:
+```typescript
+async function runUipAsync(ctx, args): Promise<UipRunResult>
+```
 
-### 2.3 — Bind uipath-troubleshoot and uipath-review
+**New file: `src/engine/worker-pool.ts`**
 
-**New agent: `diagnostician` (wraps uipath-troubleshoot)**
-- When a step fails (validate, deploy, test), the pipeline feeds the error + logs to the diagnostician.
-- The diagnostician loads `uipath-troubleshoot/SKILL.md`, follows its investigation procedure: anchor the entity, extract signals, route to a playbook, run diagnostic `uip` commands, present root cause.
-- It does NOT apply fixes — it diagnoses and recommends.
-- Added to the autopilot pipeline as a recovery step after failures.
+- Configurable concurrency (default 4, `--concurrency N` flag).
+- A `Semaphore` class limits concurrent async tasks.
+- `runParallel(tasks, concurrency)` — runs tasks in parallel batches, respecting the semaphore.
+- Failed task → cancel its dependents, keep unrelated branches running.
 
-**New agent: `reviewer` (wraps uipath-review)**
-- Runs after `build` and before `deploy`.
-- Loads `uipath-review/SKILL.md`, runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate` as applicable.
-- Produces a structured review report with findings (Critical/Warning/Info).
-- If any **Critical** finding: stop the pipeline, report to the user.
-- If only **Warning**: continue but warn.
+### 3.3 — Mutation lock
 
-**Update `quality-gate`** to call the reviewer for validation instead of running its own `uip maestro case validate` directly.
+**New file: `src/engine/mutation-lock.ts`**
 
-**Update `autopilot`** to include the reviewer step between build and deploy, and the diagnostician as a failure-recovery step.
+- Key: `${tenant}/${folder}` (or `global` if no folder).
+- `async acquire(key): Promise<LockToken>` — blocks until free, returns a token.
+- `release(token)` — releases the lock.
+- Async mutex using a `Map<string, Promise>` queue per key.
+- MUTATING tasks acquire the lock before running; READ_ONLY/AUTHORING never acquire.
+
+### 3.4 — Tenant snapshot
+
+**New file: `src/engine/tenant-snapshot.ts`**
+
+At pipeline start, fetch in parallel (using async runner):
+- `uip or folders list --output json`
+- `uip or assets list --all-folders --output json`
+- `uip or queues list --all-folders --output json`
+- `uip or processes list --all-folders --output json`
+
+Cache with 60s TTL. Workers read from snapshot instead of re-querying. Pass snapshot through `AgentContext` (new field `tenantSnapshot?: TenantSnapshot`).
+
+### 3.5 — Parallel engine entry
+
+**New file: `src/engine/index.ts`**
+
+`runPipeline(ctx, mode: 'sequential' | 'parallel')`:
+- Build the DAG from the autopilot stages.
+- Sequential mode: run stages in order (current behaviour).
+- Parallel mode: run independent READ_ONLY/AUTHORING tasks in parallel; MUTATING tasks through the lock; fail-fast cancels dependents.
+- Return `AgentResult[]` with per-task status table.
+
+### 3.6 — bench command
+
+**New CLI command: `omu-h bench --sdd <file>`**
+
+- Runs the same SDD through both sequential and parallel modes.
+- Prints wall-clock time per stage per mode + speedup ratio.
+- `--dry-run`: prints the DAG, parallel batches, and which tasks take the lock — no `uip` calls.
+
+### 3.7 — Integrate into autopilot
+
+Add `--parallel` flag to `autopilot` (default: sequential for safety). When `--parallel`:
+- Use the engine's `runPipeline(ctx, 'parallel')` instead of the sequential agent loop.
 
 ## Files to create
 
 | File | Purpose |
 |------|---------|
-| `src/skill-status.ts` | Load + query skill status from upstream `assets/skill-status.json` |
-| `src/agents/diagnostician.ts` | Wraps `uipath-troubleshoot` — diagnoses failures |
-| `src/agents/reviewer.ts` | Wraps `uipath-review` — validates + reviews before deploy |
-| `test/skill-status.test.ts` | Tests for skill status loading |
-| `test/sync.test.ts` | Tests for sync command |
+| `src/engine/types.ts` | `TaskNode`, `TaskStatus`, `LockToken`, `TenantSnapshot`, `EngineResult` |
+| `src/engine/task-graph.ts` | DAG builder: autopilot stages → `TaskNode[]` + edges |
+| `src/engine/runner.ts` | Async `runUipAsync()` replacing spawnSync |
+| `src/engine/worker-pool.ts` | Semaphore + parallel worker pool with fail-fast |
+| `src/engine/mutation-lock.ts` | Per-folder async mutex for MUTATING tasks |
+| `src/engine/tenant-snapshot.ts` | Parallel tenant state fetch + 60s TTL cache |
+| `src/engine/index.ts` | Engine entry — `runPipeline(ctx, mode)` |
+| `test/engine.test.ts` | Unit tests for DAG, lock, cancellation, parallel execution |
 
 ## Files to modify
 
 | File | Change |
 |------|--------|
-| `src/types.ts` | Add `taskList?`, `allowPreview`, `skillStatusMap?` to `AgentContext` |
-| `src/skills/skill-loader.ts` | Remove `CANONICAL_SKILLS`, use catalog only |
-| `src/agents/index.ts` | Register `diagnostician` + `reviewer` |
-| `src/agents/orchestrator.ts` | Call upstream planner when `--use-upstream-planner` (default on) |
-| `src/agents/quality-gate.ts` | Delegate validation to reviewer agent |
-| `src/workflows/autopilot.ts` | Add reviewer step (after build, before deploy) + diagnostician on failure |
-| `src/cli.ts` | Add `sync` command, `--use-upstream-planner` / `--no-upstream-planner` flags, `--allow-preview` flag |
-| `package.json` | Bump to 1.4.0 |
-| `docs/UIP-COMMANDS.md` | Add new commands |
-| `README.md` | Document sync, status gating, reviewer + diagnostician |
+| `src/types.ts` | Add `TenantSnapshot`, `EngineMode` type |
+| `src/cli.ts` | Add `bench` command; add `--parallel` and `--concurrency` flags to `autopilot` |
+| `package.json` | Bump to 1.5.0 |
+| `docs/UIP-COMMANDS.md` | Add tenant snapshot commands |
+| `README.md` | Document `bench` + parallel mode |
 
 ## Acceptance
 
-- [ ] `omu-h sync` reports skill status (Stable/Preview/In-development) + new/removed/changed
-- [ ] Pipeline warns on Preview/In-development, refuses on prod without `--allow-preview`
-- [ ] Orchestrator delegates to upstream `uipath-planner` by default
-- [ ] `diagnostician` agent loads `uipath-troubleshoot` SKILL.md and diagnoses failures
-- [ ] `reviewer` agent loads `uipath-review` SKILL.md, runs `uip rpa validate` + `build`, gates on Critical
-- [ ] `npm test` passes (existing 22 + new tests)
+- [ ] `omu-h bench --sdd <file>` runs sequential vs parallel, prints wall-clock per stage
+- [ ] `--dry-run` on bench prints DAG, parallel batches, and which tasks take the lock
+- [ ] `--parallel` flag on autopilot uses the engine
+- [ ] MUTATING tasks serialize per folder via lock (unit tested)
+- [ ] Failed task cancels dependents, unrelated branches continue (unit tested)
+- [ ] Tenant snapshot fetches in parallel with TTL (unit tested)
+- [ ] `npm test` passes (36 existing + new engine tests)
 - [ ] `claude plugin validate .` passes
-- [ ] No `CANONICAL_SKILLS` hardcode — all from catalog
 - [ ] Every `uip` command verified against `uip --help`
+
+## Constraints
+
+- Do NOT modify or fork upstream skills.
+- Do NOT change `package.json` name.
+- All `uip` calls go through the real binary — nothing simulated.
+- `--dry-run` must print the DAG + batches + lock assignments.

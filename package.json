@@ -1,6 +1,6 @@
 {
   "name": "oh-my-uipath-h",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Multi-agent orchestration for the UiPath platform — chains uip CLI skills into a reliable SDD-to-deploy pipeline with stop-on-failure, skill status gating, review, and diagnostics. Research only — not affiliated with UiPath.",
   "license": "MIT",
   "author": "Laurent Cadieux <laurent@cadieux.dev>",
