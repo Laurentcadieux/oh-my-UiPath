@@ -146,7 +146,7 @@ omu-h --help
 In a Claude Code session, run these **one at a time** (not on the same line):
 
 ```
-/plugin marketplace add Laurentcadieux/oh-my-UiPath
+/plugin marketplace add Laurentcadieux/oh-my-UiPath-h
 ```
 
 Wait for "marketplace added", then:
@@ -159,68 +159,65 @@ Wait for "marketplace added", then:
 
 After install, the slash commands are available in any Claude Code session:
 
-- `/autopilot` — runs the full SDD-to-deploy pipeline (`plan → case → build → validate → deploy → test`)
-- `/build` — packs and validates the solution
-- `/deploy` — uploads, publishes, deploys, and activates
+- `/autopilot` — runs the full pipeline (`plan → review → deploy → test`)
+- `/build` — validates existing artifacts (reviewer)
+- `/deploy` — publishes and deploys the solution, then verifies
 
-The 5 agents (`orchestrator`, `solution-builder`, `case-architect`, `deployment-manager`, `quality-gate`) are also available for direct delegation.
+The 5 agents (`orchestrator`, `reviewer`, `quality-gate`, `deployment-manager`, `diagnostician`) are also available for direct delegation.
 
 ## Features
 
-- **Specialized agents** — `orchestrator`, `solution-builder`, `case-architect`, `deployment-manager`, `quality-gate`. See [`docs/agents-reference.md`](docs/agents-reference.md).
-- **Workflow commands** — composable pipelines: `build`, `deploy`, and the full `autopilot` SDD-to-deploy pipeline. See [`docs/WORKFLOWS.md`](docs/WORKFLOWS.md).
-- **Skills integration** — installed UiPath skills loaded from the catalog and bound to agents. See [`docs/SKILLS.md`](docs/SKILLS.md).
-- **SDD-to-deploy pipeline** — describe a Solution Design Document, get a planned → built → validated → deployed → tested automation. See [`docs/SDD-GUIDE.md`](docs/SDD-GUIDE.md) and [`templates/sdd-template.md`](templates/sdd-template.md).
-- **CLI** — a single `omu-h` command surface. See [`docs/CLI.md`](docs/CLI.md).
-- **Dry-run & verbose** — every command supports `--dry-run` and `--verbose`.
+- **Safety hook** — a Claude Code `PreToolUse` hook that blocks MUTATING `uip` commands on Prod tenants. See [`hooks/safety-guard.mjs`](hooks/safety-guard.mjs).
+- **Skill maturity gating** — blocks Preview/In-development skills on Prod. See [`src/skill-status.ts`](src/skill-status.ts).
+- **Review gate** — the reviewer agent runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, parses severity, and gates on Critical findings. See [`src/agents/reviewer.ts`](src/agents/reviewer.ts).
+- **Failure diagnosis** — the diagnostician uses failure output to run targeted `uip` diagnostics. See [`src/agents/diagnostician.ts`](src/agents/diagnostician.ts).
+- **Recovery recommendations** — classifies failures and recommends `uip` commands (never auto-applies). See [`src/engine/recovery.ts`](src/engine/recovery.ts).
+- **Rollback** — records pre-deploy process versions and restores them via `uip or processes rollback`. See [`src/engine/rollback.ts`](src/engine/rollback.ts).
+- **Environment promotion** — `dev → test → prod` with gates and `--confirm` for prod. See [`src/engine/environments.ts`](src/engine/environments.ts).
 - **`setup` command** — `omu-h setup` checks all prerequisites (uip CLI, skills, auth) in one command.
+- **Dry-run & verbose** — every command supports `--dry-run` and `--verbose`.
 
 ## The installed UiPath skills
 
-`uipath-admin`, `uipath-agents`, `uipath-aops`, `uipath-api-workflow`, `uipath-automation-discovery`, `uipath-automationhub`, `uipath-coded-apps`, `uipath-connector-builder`, `uipath-feedback`, `uipath-functions`, `uipath-governance`, `uipath-human-in-the-loop`, `uipath-insights`, `uipath-ixp`, `uipath-maestro-bpmn`, `uipath-maestro-case`, `uipath-maestro-flow`, `uipath-mcp-servers`, `uipath-planner`, `uipath-platform`, `uipath-process-mining`, `uipath-review`, `uipath-rpa`, `uipath-skill-catalog`, `uipath-solution`, `uipath-tasks`, `uipath-test`.
-
-Full descriptions: [`docs/SKILLS.md`](docs/SKILLS.md).
+Run `omu-h skills` or `uip skills list` to see the full list of installed skills and their descriptions. `omu-h setup` reports the count. The skill catalog is read dynamically from `~/.agents/skills/skills.catalog.json` — no hardcoded list.
 
 ## Project layout
 
 ```
 oh-my-UiPath/
 ├── README.md
-├── AGENTS.md
-├── RaceTime.md
-├── memory.md
+├── LICENSE
 ├── package.json
 ├── tsconfig.json
 ├── .claude-plugin/
-│   ├── plugin.json          # manifest (name, version, agents, commands)
-│   └── marketplace.json     # marketplace listing
-├── agents/                   # 5 agent definitions (repo root for plugin resolution)
-├── commands/                 # 3 slash commands (repo root for plugin resolution)
+│   ├── plugin.json          # manifest (name, version, agents, commands, hooks)
+│   ├── marketplace.json     # marketplace listing
+│   └── icon.png             # 512×512 plugin icon
+├── agents/                   # agent definitions (for Claude Code plugin)
+├── commands/                 # slash command definitions
+├── hooks/
+│   ├── hooks.json            # PreToolUse hook manifest
+│   └── safety-guard.mjs      # safety hook: blocks MUTATING uip on Prod
+├── assets/
+│   └── skill-status.json     # upstream skill maturity (Stable/Preview/In-development)
 ├── src/
-│   ├── agents/               # orchestrator, solution-builder, case-architect, deployment-manager, quality-gate
+│   ├── agents/               # orchestrator, reviewer, quality-gate, deployment-manager, diagnostician
 │   ├── workflows/            # autopilot, build, deploy
-│   ├── skills/               # skill-loader wrapping the installed UiPath skills
-│   ├── cli.ts                # omu-h CLI entry point (commander.js)
+│   ├── engine/               # recovery, rollback, environments, task-graph, worker-pool
+│   ├── skills/               # skill-loader (reads catalog dynamically)
+│   ├── cli.ts                # omu-h CLI (commander.js)
 │   ├── config.ts             # config + uip runner
+│   ├── skill-status.ts       # skill maturity loading + gating
 │   ├── types.ts              # shared TypeScript types
 │   └── index.ts              # library entry point
-├── docs/                     # agents-reference, WORKFLOWS, SKILLS, CLI, SDD-GUIDE
-└── templates/                # sdd-template.md, case-template.json, solution-template.uipx
+├── test/                     # fake-uip + 123 tests across 33 suites
+├── docs/                     # UIP-COMMANDS, agents-reference, WORKFLOWS, SKILLS, CLI, SDD-GUIDE
+└── templates/                # sdd-template.md, .omu-env.json
 ```
 
 ## Status
 
 Published on [npm](https://www.npmjs.com/package/oh-my-uipath-h) as `oh-my-uipath-h`. Source on [GitHub](https://github.com/Laurentcadieux/oh-my-UiPath).
-
-## Disclaimer — Research Only
-
-> **This is a research project, not an official UiPath product.**
-
-- **Not affiliated with UiPath.** This is an independent helper; UiPath names and feeds are referenced only for compatibility.
-- **No warranty.** You use this software at your own risk. The authors are not liable for damage, data loss, compliance issues, or failed restores.
-- **Network and licensing.** Downloads require outbound HTTPS to the feeds you use. You are responsible for license terms of each package and for organizational policies (proxy, firewall, export control, etc.).
-- **Resolution is heuristic.** Version selection uses a lowest matching version strategy per dependency edge. It is not a full NuGet graph solver; results may differ from Visual Studio or dotnet restore.
-- **Authenticated feeds** (private Azure Artifacts with PAT, etc.) are not built in; only anonymous NuGet v3 sources work unless you extend the code.
 
 ## License
 
