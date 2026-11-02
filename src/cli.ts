@@ -9,6 +9,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import type { AgentContext, AgentResult } from './types';
 import { agentList, getAgent } from './agents';
 import { workflowList, getWorkflow } from './workflows';
@@ -90,15 +91,44 @@ export function createCli(): Command {
   program
     .name('omu-h')
     .description('oh-my-UiPath — multi-agent orchestration for the UiPath platform')
-    .version('2.0.9');
+    .version('2.1.0');
 
   // --- setup ---
   program
     .command('setup')
-    .description('Check prerequisites and show setup status')
-    .action(async () => {
+    .description('Check prerequisites and configure Prod guard rails')
+    .option('--prod-tenant <name>', 'set the Prod tenant name pattern (or "loco" to disable all guard rails)')
+    .action(async (opts: Record<string, unknown>) => {
       console.log(chalk.cyan('\noh-my-UiPath Setup\n'));
       const cfg = loadConfig();
+
+      // ── Prod guard configuration ──
+      if (typeof opts.prodTenant === 'string') {
+        const omuPath = path.join(process.cwd(), '.omu.json');
+        let omuJson: Record<string, unknown> = {};
+        try {
+          omuJson = JSON.parse(fs.readFileSync(omuPath, 'utf8'));
+        } catch {
+          // file doesn't exist or is malformed — start fresh
+        }
+        omuJson.prodTenantPattern = opts.prodTenant;
+        fs.writeFileSync(omuPath, JSON.stringify(omuJson, null, 2) + '\n');
+        if (opts.prodTenant.toLowerCase() === 'loco') {
+          console.log(`${chalk.yellow('⚠')} Prod guard: ${chalk.yellow('DISABLED')} (tenant is "loco" — all guard rails removed)`);
+        } else {
+          console.log(`${chalk.green('✓')} Prod guard pattern: ${chalk.bold(opts.prodTenant)} → ${chalk.gray(omuPath)}`);
+        }
+        console.log();
+      }
+
+      const currentPattern = cfg.prodTenantPattern ?? '^(prod|prd|production)([-_.].*)?$';
+      const isLocal = currentPattern === 'loco' || currentPattern.toLowerCase() === 'loco';
+      if (isLocal) {
+        console.log(`${chalk.yellow('⚠')} Prod guard: ${chalk.yellow('DISABLED')} (pattern is "loco")`);
+      } else {
+        console.log(`${chalk.green('✓')} Prod guard pattern: ${chalk.bold(currentPattern)}`);
+      }
+      console.log(chalk.gray(`  Override: omu-h setup --prod-tenant <name> (use "loco" to disable)`));
 
       // Check uip CLI
       const uipVer = tryExec(`'${cfg.uipBin}' --version`);

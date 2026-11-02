@@ -8,6 +8,7 @@ import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { AgentContext, AgentResult } from './types';
+import { isLocalTenant, isProdTenant, loadProdPattern } from './safety';
 
 /** Resolved configuration for oh-my-UiPath. */
 export interface OhMyUiPathConfig {
@@ -19,6 +20,8 @@ export interface OhMyUiPathConfig {
   readonly defaultTenant?: string;
   /** Default Orchestrator folder, if set. */
   readonly defaultFolder?: string;
+  /** Prod tenant pattern (regex string). */
+  readonly prodTenantPattern?: string;
 }
 
 /** Load config, applying overrides and environment defaults. */
@@ -28,6 +31,7 @@ export function loadConfig(overrides: Partial<OhMyUiPathConfig> = {}): OhMyUiPat
     skillsRoot: overrides.skillsRoot ?? process.env.OMU_SKILLS_ROOT ?? path.join(os.homedir(), '.agents', 'skills'),
     defaultTenant: overrides.defaultTenant ?? process.env.OMU_TENANT,
     defaultFolder: overrides.defaultFolder ?? process.env.OMU_FOLDER,
+    prodTenantPattern: overrides.prodTenantPattern ?? loadProdPattern(),
   };
 }
 
@@ -42,12 +46,86 @@ export interface UipRunResult {
   readonly label?: string;
 }
 
+/** MUTATING subcommands that change tenant state. Must match the hook. */
+const MUTATING_PATTERNS = [
+  /solution\s+publish\b/,
+  /solution\s+deploy\s+run\b/,
+  /solution\s+deploy\s+activate\b/,
+  /solution\s+deploy\s+upgrade\b/,
+  /solution\s+deploy\s+uninstall\b/,
+  /solution\s+deploy\s+delete\b/,
+  /solution\s+upload\b/,
+  /solution\s+delete\b/,
+  /solution\s+packages\s+delete\b/,
+  /solution\s+feeds\s+delete\b/,
+  /or\s+processes\s+rollback\b/,
+  /or\s+processes\s+update-version\b/,
+  /or\s+processes\s+(create|delete)\b/,
+  /or\s+assets\s+(create|delete|update)\b/,
+  /or\s+queues\s+(create|delete|share|unshare)\b/,
+  /or\s+buckets\s+(create|delete)\b/,
+  /or\s+folders\s+(create|delete)\b/,
+  /or\s+libraries\s+(delete|upload)\b/,
+  /or\s+jobs\s+(start|stop|restart)\b/,
+  /or\s+queue-items\s+(start|stop|restart)\b/,
+  /maestro\s+(case|bpmn|flow)\s+(publish|deploy|run)\b/,
+  /codedapp\s+(publish|deploy|delete|push)\b/,
+  /codedagent\s+(publish|deploy|register)\b/,
+  /function\s+(publish|push)\b/,
+  /ixp\s+projects\s+(publish|unpublish|delete)\b/,
+  /is\s+connectors\s+(import|publish|delete)\b/,
+  /agenthub\s+mcp\s+(create|delete|update)\b/,
+  /admin\s+\S+\s+delete\b/,
+  /ah\s+\S+\s+delete\b/,
+];
+
+/** Check if a uip command (args joined) is MUTATING. */
+function isMutating(args: readonly string[]): boolean {
+  const cmd = args.join(' ');
+  return MUTATING_PATTERNS.some((re) => re.test(cmd));
+}
+
+/** Cached tenant lookup (30s TTL). */
+let cachedTenant: { tenant: string; expiresAt: number } | null = null;
+
+/** Get the real tenant name from `uip login status --output json`. */
+function getRealTenant(ctx: AgentContext, bin: string): string {
+  if (cachedTenant && Date.now() < cachedTenant.expiresAt) {
+    return cachedTenant.tenant;
+  }
+  let cmd = bin;
+  let cmdArgs = ['login', 'status', '--output', 'json'];
+  if (bin.endsWith('.js')) {
+    cmd = process.execPath;
+    cmdArgs = [bin, 'login', 'status', '--output', 'json'];
+  }
+  try {
+    const res = spawnSync(cmd, cmdArgs, {
+      cwd: ctx.cwd,
+      encoding: 'utf8',
+      timeout: 10000,
+      maxBuffer: 1024 * 1024,
+    });
+    const out = res.stdout ?? '';
+    // Try to parse JSON — uip login status --output json returns { ... tenant: "..." ... }
+    const match = out.match(/"tenant"\s*:\s*"([^"]+)"/i);
+    const tenant = match ? match[1] : '';
+    cachedTenant = { tenant, expiresAt: Date.now() + 30_000 };
+    return tenant;
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Run the `uip` CLI synchronously with `args` in the context's cwd.
  *
  * Synchronous on purpose: each agent step is a small, bounded `uip` call and we
  * want deterministic ordering. Failures are returned (exitCode != 0), never
  * thrown — the caller decides how to aggregate.
+ *
+ * Prod guard: if the command is MUTATING, reads the real tenant from
+ * `uip login status` and blocks on Prod. The `loco` tenant disables all rails.
  */
 export function runUip(
   ctx: AgentContext,
@@ -63,6 +141,41 @@ export function runUip(
     cmd = process.execPath;
     cmdArgs = [bin, ...args];
   }
+
+  // ── Prod guard ──
+  // If the command is MUTATING, check the real tenant and block on Prod.
+  // The `loco` tenant disables all guard rails.
+  if (!ctx.dryRun && isMutating(args)) {
+    const realTenant = getRealTenant(ctx, bin);
+    if (isLocalTenant(realTenant)) {
+      // loco — all guard rails disabled
+      process.stderr.write(
+        `⚠ [omu-h] Guard rails disabled — tenant is "${realTenant}" (local).\n`,
+      );
+    } else if (process.env.OMU_ALLOW_PROD_MUTATIONS !== '1') {
+      if (isProdTenant(realTenant, config.prodTenantPattern)) {
+        return {
+          command: config.uipBin,
+          args,
+          stdout: '',
+          stderr: `✗ [omu-h] Blocked MUTATING uip command on Prod tenant "${realTenant}".\n  Set OMU_ALLOW_PROD_MUTATIONS=1 to bypass, or use omu-h rollback for safe reverts.`,
+          exitCode: 1,
+          label: opts.label,
+        };
+      }
+      if (!realTenant || realTenant.length === 0) {
+        return {
+          command: config.uipBin,
+          args,
+          stdout: '',
+          stderr: `✗ [omu-h] Blocked MUTATING uip command — tenant is unknown.\n  Run \`uip login\` first, or set OMU_ALLOW_PROD_MUTATIONS=1 to bypass.`,
+          exitCode: 1,
+          label: opts.label,
+        };
+      }
+    }
+  }
+
   const res: SpawnSyncReturns<string> = spawnSync(cmd, cmdArgs, {
     cwd: ctx.cwd,
     encoding: 'utf8',

@@ -50,6 +50,19 @@ for (const entry of script) {
   }
 }
 
+// Built-in defaults for common commands
+if (!matched) {
+  if (argStr.startsWith('login status') || argStr === 'login status' || argStr.startsWith('login status ')) {
+    // Return a non-prod tenant so the guard doesn't block in tests
+    if (argStr.includes('--output') && argStr.includes('json')) {
+      process.stdout.write(JSON.stringify({ tenant: 'TestTenant', loggedIn: true }));
+    } else {
+      process.stdout.write('Logged in as test-user on tenant TestTenant\n');
+    }
+    process.exit(0);
+  }
+}
+
 if (matched) {
   if (matched.stdout) process.stdout.write(matched.stdout);
   if (matched.stderr) process.stderr.write(matched.stderr);

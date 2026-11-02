@@ -62,7 +62,7 @@ const omuConfig = loadOmuConfig();
 const PROD_PATTERN_STR =
   process.env.OMU_PROD_TENANT_PATTERN ??
   omuConfig.prodTenantPattern ??
-  "^(prod|production)([-_].*)?$";
+  "(prod|prd|production)";
 const PROD_RE = new RegExp(PROD_PATTERN_STR, "i");
 
 /** Bypass flag for all prod mutations. */
@@ -316,6 +316,15 @@ if (!hasMutating) {
 
 // At least one mutating command — check the tenant.
 const currentTenant = process.env.UIPATH_CURRENT_TENANT ?? process.env.OMU_TENANT ?? "";
+
+// ── loco escape hatch: disable all guard rails ──
+if (currentTenant.toLowerCase() === "loco") {
+  process.stderr.write(
+    `⚠ [omu-h] Guard rails disabled — tenant is "${currentTenant}" (local).\n`,
+  );
+  process.exit(0);
+}
+
 const isProd = currentTenant.length > 0 && PROD_RE.test(currentTenant);
 const isKnown = currentTenant.length > 0;
 
