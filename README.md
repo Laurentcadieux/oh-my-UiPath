@@ -9,14 +9,16 @@ The upstream [UiPath skills](https://github.com/UiPath/skills) are great — eac
 **What omu-h adds:**
 
 1. **REA-UiPath** — `omu-h rea ./anything` — reverse-engineers any existing system (script, BPMN, macro, process doc) into a UiPath solution with a Coded App frontend. Upstream needs a PDD you already wrote; REA-UiPath writes it for you.
-2. **Safety hook** — blocks `publish`/`deploy`/`activate` on Prod tenants. Fail-closed on unknown tenant. Bypass with `OMU_ALLOW_PROD_MUTATIONS=1`.
-3. **Skill maturity gating** — blocks Preview and In-development skills on Prod unless `OMU_ALLOW_PREVIEW=1`.
-4. **Review before deploy** — runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, gates on Critical findings.
-5. **Failure diagnosis** — extracts job IDs from errors, runs `uip or jobs logs` + `uip solution deploy status`.
-6. **Recovery recommendations** — classifies failures, prints a recommended `uip` command. Never auto-applies.
-7. **Rollback** — snapshots process versions before each deploy. `omu-h rollback <env>` restores them.
-8. **Environment promotion** — `omu-h promote dev test` / `omu-h promote test prod` with gates. Prod requires `--confirm`.
-9. **Token ROI** — `omu-h tokens` / `omu-h roi` — tracks LLM token usage per agent and per stage, with cost estimate.
+2. **Prod guard inside `runUip`** — the single choke point. Reads the real tenant from `uip login status`, blocks MUTATING commands on Prod or unknown tenants. Not just the hook — the CLI itself is guarded.
+3. **`loco` escape hatch** — `omu-h setup --prod-tenant loco` disables all guard rails for local development. No MUTATING blocking, no skill gating, no fail-closed.
+4. **Safety hook** — blocks `publish`/`deploy`/`activate` on Prod tenants. Fail-closed on unknown tenant. Bypass with `OMU_ALLOW_PROD_MUTATIONS=1`.
+5. **Skill maturity gating** — blocks Preview and In-development skills on Prod unless `OMU_ALLOW_PREVIEW=1`.
+6. **Review before deploy** — runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, gates on Critical findings.
+7. **Failure diagnosis** — extracts job IDs from errors, runs `uip or jobs logs` + `uip solution deploy status`.
+8. **Recovery recommendations** — classifies failures, prints a recommended `uip` command. Never auto-applies.
+9. **Rollback** — snapshots process versions before each deploy. `omu-h rollback <env>` restores them.
+10. **Environment promotion** — `omu-h promote dev test` / `omu-h promote test prod` with gates. Prod requires `--confirm`.
+11. **Token ROI** — `omu-h tokens` / `omu-h roi` — tracks LLM token usage per agent and per stage, with cost estimate.
 
 ### Relationship to upstream
 
@@ -171,6 +173,8 @@ After install (Step 7), the 6 agents (`orchestrator`, `reviewer`, `quality-gate`
 ## Features
 
 - **REA-UiPath** — `omu-h rea <input>` reverse-engineers any existing system (script, BPMN, macro, process doc) into a UiPath solution with a Coded App frontend. See [`src/agents/rea-uipath.ts`](src/agents/rea-uipath.ts).
+- **Prod guard inside `runUip`** — the CLI's own `uip` runner reads the real tenant from `uip login status` and blocks MUTATING commands on Prod or unknown tenants. The guard lives in the single choke point, not just the hook. See [`src/config.ts`](src/config.ts) + [`src/safety.ts`](src/safety.ts).
+- **`loco` escape hatch** — `omu-h setup --prod-tenant loco` disables all guard rails for local development. Every command is allowed, no classification, no gating.
 - **Safety hook** — a Claude Code `PreToolUse` hook that blocks MUTATING `uip` commands on Prod tenants. See [`hooks/safety-guard.mjs`](hooks/safety-guard.mjs).
 - **Skill maturity gating** — blocks Preview/In-development skills on Prod. See [`src/skill-status.ts`](src/skill-status.ts).
 - **Review gate** — the reviewer agent runs `uip rpa validate` + `uip rpa build` + `uip maestro case validate`, parses severity, and gates on Critical findings. See [`src/agents/reviewer.ts`](src/agents/reviewer.ts).
@@ -179,7 +183,7 @@ After install (Step 7), the 6 agents (`orchestrator`, `reviewer`, `quality-gate`
 - **Rollback** — records pre-deploy process versions and restores them via `uip or processes rollback`. See [`src/engine/rollback.ts`](src/engine/rollback.ts).
 - **Environment promotion** — `dev → test → prod` with gates and `--confirm` for prod. See [`src/engine/environments.ts`](src/engine/environments.ts).
 - **Token ROI** — `omu-h tokens` / `omu-h roi` tracks LLM token usage per agent and per stage, with cost estimate. See [`src/token-tracker.ts`](src/token-tracker.ts).
-- **`setup` command** — `omu-h setup` checks all prerequisites (uip CLI, skills, auth) in one command.
+- **`setup` command** — `omu-h setup` checks all prerequisites (uip CLI, skills, auth) and configures the Prod guard pattern. `--prod-tenant <name>` writes to `.omu.json`.
 - **`sync` command** — `omu-h sync` reports skill maturity (Stable / Preview / In-development) from upstream.
 - **Dry-run & verbose** — every command supports `--dry-run` and `--verbose`.
 
@@ -216,7 +220,7 @@ oh-my-UiPath/
 │   ├── skill-status.ts       # skill maturity loading + gating
 │   ├── types.ts              # shared TypeScript types
 │   └── index.ts              # library entry point
-├── test/                     # fake-uip + 123 tests across 33 suites
+├── test/                     # fake-uip + 195 tests across 47 suites
 ├── docs/                     # UIP-COMMANDS, agents-reference, WORKFLOWS, SKILLS, CLI, SDD-GUIDE
 └── templates/                # sdd-template.md, .omu-env.json
 ```
